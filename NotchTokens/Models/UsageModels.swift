@@ -46,6 +46,7 @@ nonisolated struct ProviderUsage {
     var limits: [LimitWindow]
     var cost: Double
     var todayCost: Double
+    var monthCost: Double
 
     static func placeholder(kind: ProviderKind, title: String) -> ProviderUsage {
         ProviderUsage(
@@ -57,7 +58,8 @@ nonisolated struct ProviderUsage {
             lastActivity: nil,
             limits: [],
             cost: 0,
-            todayCost: 0
+            todayCost: 0,
+            monthCost: 0
         )
     }
 }

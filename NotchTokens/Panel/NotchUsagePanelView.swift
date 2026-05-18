@@ -9,12 +9,14 @@ import AppKit
 final class NotchUsagePanelView: NSView {
     private enum ButtonKind: CaseIterable {
         case refresh
+        case settings
         case pin
         case quit
 
         var symbolName: String {
             switch self {
             case .refresh: "arrow.clockwise"
+            case .settings: "gearshape"
             case .pin: "pin"
             case .quit: "power"
             }
@@ -23,6 +25,7 @@ final class NotchUsagePanelView: NSView {
 
     private let monitor: UsageMonitor
     private let onSizeChange: (CGSize) -> Void
+    private let onOpenSettings: () -> Void
     private var trackingArea: NSTrackingArea?
     private var snapshot: UsageSnapshot
     private var isExpanded = false
@@ -40,9 +43,10 @@ final class NotchUsagePanelView: NSView {
 
     override var isFlipped: Bool { true }
 
-    init(monitor: UsageMonitor, onSizeChange: @escaping (CGSize) -> Void) {
+    init(monitor: UsageMonitor, onSizeChange: @escaping (CGSize) -> Void, onOpenSettings: @escaping () -> Void) {
         self.monitor = monitor
         self.onSizeChange = onSizeChange
+        self.onOpenSettings = onOpenSettings
         self.snapshot = monitor.snapshot
 
         super.init(frame: CGRect(origin: .zero, size: Self.collapsedSize))
@@ -163,6 +167,8 @@ final class NotchUsagePanelView: NSView {
         switch kind {
         case .refresh:
             monitor.refresh()
+        case .settings:
+            onOpenSettings()
         case .pin:
             isPinned.toggle()
             setExpanded(true)
@@ -447,7 +453,9 @@ final class NotchUsagePanelView: NSView {
         if provider.todayTokens > 0 {
             parts.append("\(formatTokens(provider.todayTokens)) today")
         }
-        if provider.cost > 0 {
+        if provider.monthCost > 0 {
+            parts.append("\(formatCost(provider.monthCost)) this month")
+        } else if provider.cost > 0 {
             parts.append(formatCost(provider.cost))
         }
         if let resets = provider.limits.first?.resetsAt {

@@ -10,7 +10,7 @@ final class NotchPanelController {
     private let panel: NSPanel
     private var currentSize = CGSize(width: 220, height: 38)
 
-    init(monitor: UsageMonitor) {
+    init(monitor: UsageMonitor, onOpenSettings: @escaping () -> Void) {
         panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: currentSize),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
@@ -32,7 +32,8 @@ final class NotchPanelController {
             monitor: monitor,
             onSizeChange: { [weak self] size in
                 self?.resize(to: size)
-            }
+            },
+            onOpenSettings: onOpenSettings
         )
 
         NotificationCenter.default.addObserver(

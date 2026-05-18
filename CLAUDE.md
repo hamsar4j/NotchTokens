@@ -58,6 +58,12 @@ OpenCode does **not** consult this table — it has its own pre-computed `cost` 
 - Hover flicker is suppressed by a debounced collapse: `mouseExited` schedules a `DispatchWorkItem` 0.18s later that double-checks `NSEvent.mouseLocation` against the window frame before actually collapsing. This absorbs phantom enter/exit events fired during `updateTrackingAreas` rebuilds.
 - The view is `isFlipped = true` (top-left origin). Image draws must use `respectFlipped: true` or the image renders upside down.
 
+### Settings + budget-driven limits
+
+User settings live in `~/Library/Application Support/NotchTokens/config.json`, persisted via `SettingsStore` (an `ObservableObject` so the SwiftUI settings window binds directly to it). Codex and OpenCode have no native server-side rate-limit windows, so the user sets a monthly $ budget per provider; `UsageMonitor.refresh()` synthesizes a `LimitWindow(name: "Month", usedPercent: monthCost/budget * 100, resetsAt: startOfNextMonth)` for any provider with a budget and no real limits. The UI bar/percent/caption code doesn't know or care that the window is synthetic — it renders the same way as Claude's real 5h/7d windows.
+
+The settings window itself is SwiftUI inside an `NSHostingController`-backed `NSWindow` (regular, focusable — not the `nonactivatingPanel` we use for the notch), opened from the gear button in the panel footer.
+
 ### Adding a new harness
 
 Pattern: add a `ProviderKind` case → placeholder in `UsageSnapshot.placeholder` → a `read<Name>()` method on `LocalUsageReader` (or a separate service) that returns a `ProviderUsage` → an asset in `Assets.xcassets/<name>.imageset` → wire `drawProviderLogo`, the collapsed-segment list, and the expanded-row loop in `NotchUsagePanelView`. The expanded panel size and collapsed pill width may need to grow to fit additional rows/segments.

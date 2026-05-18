@@ -25,11 +25,16 @@ enum NotchTokensMain {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private let monitor = UsageMonitor()
+    private let settings = SettingsStore()
+    private lazy var monitor = UsageMonitor(settings: settings)
+    private lazy var settingsWindow = SettingsWindowController(store: settings)
     private var panelController: NotchPanelController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        let controller = NotchPanelController(monitor: monitor)
+        let controller = NotchPanelController(
+            monitor: monitor,
+            onOpenSettings: { [weak self] in self?.settingsWindow.show() }
+        )
         panelController = controller
         controller.show()
         monitor.refresh()

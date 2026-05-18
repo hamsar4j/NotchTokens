@@ -34,6 +34,7 @@ nonisolated struct LocalUsageReader {
         var lastActivity: Date?
         var cost: Double = 0
         var todayCost: Double = 0
+        var monthCost: Double = 0
 
         for file in jsonlFiles(under: projectsRoot) {
             forEachJSONLine(in: file) { object in
@@ -75,6 +76,9 @@ nonisolated struct LocalUsageReader {
                         todayTotal += recordTotal
                         todayCost += recordCost
                     }
+                    if isInCurrentMonth(timestamp) {
+                        monthCost += recordCost
+                    }
                 }
             }
         }
@@ -95,7 +99,8 @@ nonisolated struct LocalUsageReader {
             lastActivity: lastActivity,
             limits: [],
             cost: cost,
-            todayCost: todayCost
+            todayCost: todayCost,
+            monthCost: monthCost
         )
     }
 
@@ -122,6 +127,7 @@ nonisolated struct LocalUsageReader {
         var latestLimits: [LimitWindow] = []
         var cost: Double = 0
         var todayCost: Double = 0
+        var monthCost: Double = 0
 
         for root in roots {
             for file in jsonlFiles(under: root) {
@@ -196,6 +202,9 @@ nonisolated struct LocalUsageReader {
                     todayTotal += sessionTotal
                     todayCost += sessionCost
                 }
+                if let sessionLastActivity, isInCurrentMonth(sessionLastActivity) {
+                    monthCost += sessionCost
+                }
             }
         }
 
@@ -208,7 +217,8 @@ nonisolated struct LocalUsageReader {
             lastActivity: lastActivity,
             limits: latestLimits,
             cost: cost,
-            todayCost: todayCost
+            todayCost: todayCost,
+            monthCost: monthCost
         )
     }
 
@@ -226,6 +236,7 @@ nonisolated struct LocalUsageReader {
         var todayTotal: Int64 = 0
         var cost: Double = 0
         var todayCost: Double = 0
+        var monthCost: Double = 0
         var lastActivity: Date?
 
         guard let enumerator = fileManager.enumerator(
@@ -271,6 +282,9 @@ nonisolated struct LocalUsageReader {
                     todayTotal += messageTotal
                     todayCost += messageCost
                 }
+                if isInCurrentMonth(timestamp) {
+                    monthCost += messageCost
+                }
             }
         }
 
@@ -283,8 +297,15 @@ nonisolated struct LocalUsageReader {
             lastActivity: lastActivity,
             limits: [],
             cost: cost,
-            todayCost: todayCost
+            todayCost: todayCost,
+            monthCost: monthCost
         )
+    }
+
+    private func isInCurrentMonth(_ date: Date) -> Bool {
+        let now = Date()
+        return calendar.component(.year, from: date) == calendar.component(.year, from: now)
+            && calendar.component(.month, from: date) == calendar.component(.month, from: now)
     }
 
     private func readCodexConfigModel(at file: URL) -> String? {

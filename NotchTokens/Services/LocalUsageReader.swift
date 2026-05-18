@@ -113,6 +113,8 @@ nonisolated struct LocalUsageReader {
             codexRoot.appendingPathComponent("archived_sessions", isDirectory: true),
         ]
 
+        let configuredModel = readCodexConfigModel(at: codexRoot.appendingPathComponent("config.toml"))
+
         var total: Int64 = 0
         var todayTotal: Int64 = 0
         var lastActivity: Date?
@@ -178,12 +180,14 @@ nonisolated struct LocalUsageReader {
                 total += sessionTotal
                 lastActivity = maxDate(lastActivity, sessionLastActivity)
 
-                let rate = pricing.rate(for: sessionModel)
+                let rate = pricing.rate(for: sessionModel ?? configuredModel)
                 let raw = sessionUsageRaw ?? [:]
+                let inputRaw = int64(raw["input_tokens"])
+                let cached = int64(raw["cached_input_tokens"])
                 let sessionCost = rate?.cost(
-                    input: int64(raw["input_tokens"]),
+                    input: max(0, inputRaw - cached),
                     output: int64(raw["output_tokens"]),
-                    cachedRead: int64(raw["cached_input_tokens"]),
+                    cachedRead: cached,
                     cacheWrite: 0
                 ) ?? 0
                 cost += sessionCost
@@ -281,6 +285,22 @@ nonisolated struct LocalUsageReader {
             cost: cost,
             todayCost: todayCost
         )
+    }
+
+    private func readCodexConfigModel(at file: URL) -> String? {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+
+        for line in text.split(whereSeparator: \.isNewline) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("[") { break } // stop at first section header
+            guard trimmed.hasPrefix("model"), trimmed.contains("=") else { continue }
+            let value = trimmed.split(separator: "=", maxSplits: 1).last ?? ""
+            let stripped = value
+                .trimmingCharacters(in: .whitespaces)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            return stripped.isEmpty ? nil : stripped
+        }
+        return nil
     }
 
     private func parseOpenCodeTime(_ value: Any?) -> Date? {

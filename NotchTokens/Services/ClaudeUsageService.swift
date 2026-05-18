@@ -5,11 +5,19 @@
 
 import Foundation
 
-nonisolated struct ClaudeUsageService {
+actor ClaudeUsageService {
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
+    private var failureCount = 0
+    private var nextAllowedAttempt: Date?
+
     func fetchLimits() async -> [LimitWindow] {
+        if let next = nextAllowedAttempt, next > Date() {
+            return []
+        }
+
         guard let token = ClaudeCredentials.readAccessToken() else {
+            recordFailure(authProblem: true)
             return []
         }
 
@@ -23,17 +31,36 @@ nonisolated struct ClaudeUsageService {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard
-                let http = response as? HTTPURLResponse,
-                (200..<300).contains(http.statusCode),
-                let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else {
+            guard let http = response as? HTTPURLResponse else {
+                recordFailure(authProblem: false)
                 return []
             }
+            guard (200..<300).contains(http.statusCode) else {
+                recordFailure(authProblem: http.statusCode == 401 || http.statusCode == 403)
+                return []
+            }
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                recordFailure(authProblem: false)
+                return []
+            }
+            recordSuccess()
             return Self.parseLimits(from: object)
         } catch {
+            recordFailure(authProblem: false)
             return []
         }
+    }
+
+    private func recordSuccess() {
+        failureCount = 0
+        nextAllowedAttempt = nil
+    }
+
+    private func recordFailure(authProblem: Bool) {
+        failureCount += 1
+        let base: Double = authProblem ? 120 : 60
+        let delay = min(600, base * pow(2.0, Double(failureCount - 1)))
+        nextAllowedAttempt = Date().addingTimeInterval(delay)
     }
 
     static func parseLimits(from object: [String: Any]) -> [LimitWindow] {

@@ -132,8 +132,12 @@ final class NotchUsagePanelView: NSView {
     private func setExpanded(_ expanded: Bool) {
         guard isExpanded != expanded else { return }
         isExpanded = expanded
-        frame.size = targetSize
         onSizeChange(targetSize)
+        needsDisplay = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
         needsDisplay = true
     }
 

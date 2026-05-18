@@ -13,7 +13,7 @@ final class NotchPanelController {
     init(monitor: UsageMonitor) {
         panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: currentSize),
-            styleMask: [.borderless, .fullSizeContentView],
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
@@ -24,6 +24,8 @@ final class NotchPanelController {
         panel.isMovable = false
         panel.isOpaque = false
         panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = true
         panel.level = .statusBar
 
         panel.contentView = NotchUsagePanelView(
@@ -50,7 +52,7 @@ final class NotchPanelController {
         panel.orderFrontRegardless()
     }
 
-    private func resize(to size: CGSize, animated: Bool = false) {
+    private func resize(to size: CGSize, animated: Bool = true) {
         currentSize = size
 
         guard let screen = NSScreen.main ?? NSScreen.screens.first else {
@@ -62,7 +64,17 @@ final class NotchPanelController {
         let y = frame.maxY - size.height
         let targetFrame = NSRect(x: x, y: y, width: size.width, height: size.height)
 
-        panel.setFrame(targetFrame, display: true, animate: animated)
+        guard animated else {
+            panel.setFrame(targetFrame, display: true, animate: false)
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.28
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.32, 0.72, 0.24, 1.0)
+            context.allowsImplicitAnimation = true
+            panel.animator().setFrame(targetFrame, display: true)
+        }
     }
 
     @objc private func screenParametersChanged() {

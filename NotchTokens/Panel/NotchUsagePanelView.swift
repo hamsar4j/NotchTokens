@@ -30,8 +30,8 @@ final class NotchUsagePanelView: NSView {
     private var buttonFrames: [ButtonKind: CGRect] = [:]
     private var collapseWorkItem: DispatchWorkItem?
 
-    private static let collapsedSize = CGSize(width: 220, height: 38)
-    private static let expandedSize = CGSize(width: 360, height: 188)
+    private static let collapsedSize = CGSize(width: 264, height: 38)
+    private static let expandedSize = CGSize(width: 380, height: 256)
 
     private var targetSize: CGSize {
         isExpanded ? Self.expandedSize : Self.collapsedSize
@@ -170,38 +170,26 @@ final class NotchUsagePanelView: NSView {
     }
 
     private func drawCollapsed() {
-        let claude = provider(.claude)
-        let codex = provider(.codex)
-
-        let claudePercent = peakPercent(for: claude)
-        let codexPercent = peakPercent(for: codex)
-
-        // Two side-by-side dots + mini bars
-        let padding: CGFloat = 14
-        let availableWidth = bounds.width - padding * 2
-        let halfWidth = (availableWidth - 14) / 2
+        let kinds: [(ProviderKind, String)] = [(.claude, "C"), (.codex, "X"), (.opencode, "O")]
+        let padding: CGFloat = 12
+        let gap: CGFloat = 8
+        let segmentCount = CGFloat(kinds.count)
+        let segmentWidth = (bounds.width - padding * 2 - gap * (segmentCount - 1)) / segmentCount
         let barHeight: CGFloat = 4
         let barY = bounds.midY - barHeight / 2 + 1
 
-        drawSegment(
-            x: padding,
-            width: halfWidth,
-            barY: barY,
-            barHeight: barHeight,
-            label: "C",
-            percent: claudePercent,
-            hasData: claude?.state == .ready
-        )
-
-        drawSegment(
-            x: padding + halfWidth + 14,
-            width: halfWidth,
-            barY: barY,
-            barHeight: barHeight,
-            label: "X",
-            percent: codexPercent,
-            hasData: codex?.state == .ready
-        )
+        for (index, entry) in kinds.enumerated() {
+            let p = provider(entry.0)
+            drawSegment(
+                x: padding + CGFloat(index) * (segmentWidth + gap),
+                width: segmentWidth,
+                barY: barY,
+                barHeight: barHeight,
+                label: entry.1,
+                percent: peakPercent(for: p),
+                hasData: p?.state == .ready
+            )
+        }
     }
 
     private func drawSegment(x: CGFloat, width: CGFloat, barY: CGFloat, barHeight: CGFloat, label: String, percent: Double?, hasData: Bool) {
@@ -240,20 +228,21 @@ final class NotchUsagePanelView: NSView {
     private func drawExpanded() {
         drawHeader()
 
-        let rowHeight: CGFloat = 64
-        let rowY: CGFloat = 36
+        let rowHeight: CGFloat = 60
+        let rowGap: CGFloat = 10
+        var y: CGFloat = 36
 
-        if let claude = provider(.claude) {
-            drawRow(claude, in: CGRect(x: 16, y: rowY, width: bounds.width - 32, height: rowHeight))
-        }
+        for kind in [ProviderKind.claude, .codex, .opencode] {
+            if let p = provider(kind) {
+                drawRow(p, in: CGRect(x: 16, y: y, width: bounds.width - 32, height: rowHeight))
+            }
+            y += rowHeight
 
-        // divider
-        let dividerY = rowY + rowHeight + 4
-        NSColor.white.withAlphaComponent(0.06).setFill()
-        NSRect(x: 16, y: dividerY, width: bounds.width - 32, height: 1).fill()
-
-        if let codex = provider(.codex) {
-            drawRow(codex, in: CGRect(x: 16, y: dividerY + 5, width: bounds.width - 32, height: rowHeight))
+            if kind != .opencode {
+                NSColor.white.withAlphaComponent(0.06).setFill()
+                NSRect(x: 16, y: y + 4, width: bounds.width - 32, height: 1).fill()
+                y += rowGap
+            }
         }
 
         drawFooter()
@@ -354,17 +343,30 @@ final class NotchUsagePanelView: NSView {
         NSColor.white.withAlphaComponent(0.06).setFill()
         bgPath.fill()
 
-        let assetName = provider.kind == .claude ? "claudecode-color" : "codex-color"
-        if let image = NSImage(named: assetName) {
-            let inset = rect.insetBy(dx: 4, dy: 4)
-            image.draw(in: inset, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
-        } else {
-            let fallback = provider.kind == .claude ? "sparkles" : "chevron.left.forwardslash.chevron.right"
-            let tint = provider.kind == .claude
-                ? NSColor(calibratedRed: 0.95, green: 0.63, blue: 0.28, alpha: 1)
-                : NSColor(calibratedRed: 0.2, green: 0.82, blue: 0.74, alpha: 1)
-            drawSymbol(fallback, in: rect.insetBy(dx: 8, dy: 8), color: tint)
+        let assetName: String
+        switch provider.kind {
+        case .claude: assetName = "claudecode-color"
+        case .codex: assetName = "codex-color"
+        case .opencode: assetName = "opencode"
         }
+
+        if let image = NSImage(named: assetName) {
+            let fit = Self.aspectFitRect(imageSize: image.size, in: rect.insetBy(dx: 4, dy: 4))
+            image.draw(in: fit, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
+        } else {
+            drawSymbol("questionmark", in: rect.insetBy(dx: 8, dy: 8), color: NSColor.white.withAlphaComponent(0.4))
+        }
+    }
+
+    private static func aspectFitRect(imageSize: CGSize, in container: CGRect) -> CGRect {
+        guard imageSize.width > 0, imageSize.height > 0 else { return container }
+        let scale = min(container.width / imageSize.width, container.height / imageSize.height)
+        let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
+        let origin = CGPoint(
+            x: container.midX - size.width / 2,
+            y: container.midY - size.height / 2
+        )
+        return CGRect(origin: origin, size: size)
     }
 
     private func drawFooter() {
@@ -419,7 +421,7 @@ final class NotchUsagePanelView: NSView {
         if provider.todayTokens > 0 {
             parts.append("\(formatTokens(provider.todayTokens)) today")
         }
-        if provider.kind == .codex, provider.cost > 0 {
+        if provider.cost > 0 {
             parts.append(formatCost(provider.cost))
         }
         if let resets = provider.limits.first?.resetsAt {

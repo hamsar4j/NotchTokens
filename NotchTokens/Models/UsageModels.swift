@@ -8,6 +8,7 @@ import Foundation
 nonisolated enum ProviderKind: String {
     case claude
     case codex
+    case opencode
 }
 
 nonisolated enum ProviderState: Equatable {
@@ -23,6 +24,7 @@ nonisolated struct UsageSnapshot {
     static let placeholder = UsageSnapshot(providers: [
         .placeholder(kind: .claude, title: "Claude Code"),
         .placeholder(kind: .codex, title: "Codex"),
+        .placeholder(kind: .opencode, title: "OpenCode"),
     ])
 }
 

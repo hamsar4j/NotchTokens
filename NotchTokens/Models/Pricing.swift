@@ -5,55 +5,87 @@
 
 import Foundation
 
-nonisolated struct ModelRate {
+nonisolated struct ModelRate: Equatable {
     let input: Double
     let output: Double
-    let cachedInput: Double
+    let cachedRead: Double
     let cacheWrite: Double
 
-    static let zero = ModelRate(input: 0, output: 0, cachedInput: 0, cacheWrite: 0)
+    func cost(input: Int64, output: Int64, cachedRead: Int64, cacheWrite: Int64) -> Double {
+        Double(input) * self.input
+            + Double(output) * self.output
+            + Double(cachedRead) * self.cachedRead
+            + Double(cacheWrite) * self.cacheWrite
+    }
 }
 
-nonisolated enum Pricing {
-    private static let claudeRates: [(String, ModelRate)] = [
-        ("opus-4", ModelRate(input: 15.0, output: 75.0, cachedInput: 1.50, cacheWrite: 18.75)),
-        ("opus", ModelRate(input: 15.0, output: 75.0, cachedInput: 1.50, cacheWrite: 18.75)),
-        ("sonnet-4", ModelRate(input: 3.0, output: 15.0, cachedInput: 0.30, cacheWrite: 3.75)),
-        ("sonnet", ModelRate(input: 3.0, output: 15.0, cachedInput: 0.30, cacheWrite: 3.75)),
-        ("haiku-4", ModelRate(input: 1.0, output: 5.0, cachedInput: 0.10, cacheWrite: 1.25)),
-        ("haiku", ModelRate(input: 0.80, output: 4.0, cachedInput: 0.08, cacheWrite: 1.0)),
-    ]
+nonisolated struct PricingTable {
+    let rates: [String: ModelRate]
 
-    private static let codexRates: [(String, ModelRate)] = [
-        ("gpt-5", ModelRate(input: 1.25, output: 10.0, cachedInput: 0.125, cacheWrite: 0)),
-        ("o3", ModelRate(input: 10.0, output: 40.0, cachedInput: 2.50, cacheWrite: 0)),
-        ("o1", ModelRate(input: 15.0, output: 60.0, cachedInput: 7.50, cacheWrite: 0)),
-        ("gpt-4o", ModelRate(input: 2.50, output: 10.0, cachedInput: 1.25, cacheWrite: 0)),
-    ]
+    static let empty = PricingTable(rates: [:])
 
-    static let defaultClaude = ModelRate(input: 3.0, output: 15.0, cachedInput: 0.30, cacheWrite: 3.75)
-    static let defaultCodex = ModelRate(input: 1.25, output: 10.0, cachedInput: 0.125, cacheWrite: 0)
+    func rate(for model: String?) -> ModelRate? {
+        guard let model = model?.lowercased(), !model.isEmpty else { return nil }
 
-    static func rate(for model: String?, kind: ProviderKind) -> ModelRate {
-        let table = kind == .claude ? claudeRates : codexRates
-        let fallback = kind == .claude ? defaultClaude : defaultCodex
+        if let exact = rates[model] { return exact }
 
-        guard let model = model?.lowercased(), !model.isEmpty else {
-            return fallback
-        }
-
-        for (needle, rate) in table where model.contains(needle) {
+        if let trimmed = Self.stripDateSuffix(model), let rate = rates[trimmed] {
             return rate
         }
-        return fallback
+
+        if let prefixed = Self.stripVendorPrefix(model), let rate = rates[prefixed] {
+            return rate
+        }
+
+        for (key, rate) in rates where model.hasPrefix(key) || key.hasPrefix(model) {
+            return rate
+        }
+
+        return nil
     }
 
-    static func cost(input: Int64, output: Int64, cachedRead: Int64, cacheWrite: Int64, rate: ModelRate) -> Double {
-        let scale = 1_000_000.0
-        return (Double(input) * rate.input
-            + Double(output) * rate.output
-            + Double(cachedRead) * rate.cachedInput
-            + Double(cacheWrite) * rate.cacheWrite) / scale
+    private static func stripDateSuffix(_ model: String) -> String? {
+        let parts = model.split(separator: "-")
+        guard parts.count > 1, let last = parts.last, last.count == 8, last.allSatisfy(\.isNumber) else {
+            return nil
+        }
+        return parts.dropLast().joined(separator: "-")
+    }
+
+    private static func stripVendorPrefix(_ model: String) -> String? {
+        guard let slashIndex = model.firstIndex(of: "/") else { return nil }
+        return String(model[model.index(after: slashIndex)...])
+    }
+
+    static func decode(_ data: Data) -> PricingTable? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+
+        var rates: [String: ModelRate] = [:]
+        rates.reserveCapacity(object.count)
+
+        for (key, value) in object {
+            guard
+                let entry = value as? [String: Any],
+                let input = entry["input_cost_per_token"] as? Double,
+                let output = entry["output_cost_per_token"] as? Double
+            else {
+                continue
+            }
+
+            let cachedRead = entry["cache_read_input_token_cost"] as? Double ?? input * 0.1
+            let cacheWrite = entry["cache_creation_input_token_cost"] as? Double ?? input * 1.25
+
+            rates[key.lowercased()] = ModelRate(
+                input: input,
+                output: output,
+                cachedRead: cachedRead,
+                cacheWrite: cacheWrite
+            )
+        }
+
+        return rates.isEmpty ? nil : PricingTable(rates: rates)
     }
 }
 

@@ -15,8 +15,8 @@ final class UsageMonitor {
 
     var onSnapshotChange: ((UsageSnapshot) -> Void)?
 
-    private let reader = LocalUsageReader()
     private let claudeUsage = ClaudeUsageService()
+    private let pricingFetcher = PricingFetcher()
     private var timer: Timer?
 
     init() {
@@ -32,15 +32,15 @@ final class UsageMonitor {
     }
 
     func refresh() {
-        let reader = self.reader
         let claudeUsage = self.claudeUsage
+        let pricingFetcher = self.pricingFetcher
         Task.detached(priority: .utility) {
-            async let snapshotTask: UsageSnapshot = {
-                reader.readSnapshot()
-            }()
+            async let _: Void = pricingFetcher.refreshIfStale()
             async let limitsTask: [LimitWindow] = claudeUsage.fetchLimits()
 
-            var snapshot = await snapshotTask
+            let pricing = await pricingFetcher.current()
+            let reader = LocalUsageReader(pricing: pricing)
+            var snapshot = reader.readSnapshot()
             let limits = await limitsTask
 
             if !limits.isEmpty,

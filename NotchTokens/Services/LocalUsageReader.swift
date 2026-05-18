@@ -8,9 +8,14 @@ import Foundation
 nonisolated struct LocalUsageReader {
     private let fileManager = FileManager.default
     private let calendar = Calendar.current
+    private let pricing: PricingTable
+
+    init(pricing: PricingTable = .empty) {
+        self.pricing = pricing
+    }
 
     func readSnapshot() -> UsageSnapshot {
-        UsageSnapshot(providers: [readClaude(), readCodex()])
+        UsageSnapshot(providers: [readClaude(), readCodex(), readOpenCode()])
     }
 
     private func readClaude() -> ProviderUsage {
@@ -55,14 +60,13 @@ nonisolated struct LocalUsageReader {
 
                 total += recordTotal
 
-                let rate = Pricing.rate(for: message["model"] as? String, kind: .claude)
-                let recordCost = Pricing.cost(
+                let rate = pricing.rate(for: message["model"] as? String)
+                let recordCost = rate?.cost(
                     input: input,
                     output: output,
                     cachedRead: cacheRead,
-                    cacheWrite: cacheWrite,
-                    rate: rate
-                )
+                    cacheWrite: cacheWrite
+                ) ?? 0
                 cost += recordCost
 
                 if let timestamp = parseDate(object["timestamp"] as? String) {
@@ -174,15 +178,14 @@ nonisolated struct LocalUsageReader {
                 total += sessionTotal
                 lastActivity = maxDate(lastActivity, sessionLastActivity)
 
-                let rate = Pricing.rate(for: sessionModel, kind: .codex)
+                let rate = pricing.rate(for: sessionModel)
                 let raw = sessionUsageRaw ?? [:]
-                let sessionCost = Pricing.cost(
+                let sessionCost = rate?.cost(
                     input: int64(raw["input_tokens"]),
                     output: int64(raw["output_tokens"]),
                     cachedRead: int64(raw["cached_input_tokens"]),
-                    cacheWrite: 0,
-                    rate: rate
-                )
+                    cacheWrite: 0
+                ) ?? 0
                 cost += sessionCost
 
                 if let sessionLastActivity, calendar.isDateInToday(sessionLastActivity) {
@@ -203,6 +206,88 @@ nonisolated struct LocalUsageReader {
             cost: cost,
             todayCost: todayCost
         )
+    }
+
+    private func readOpenCode() -> ProviderUsage {
+        let messagesRoot = home
+            .appendingPathComponent(".local/share/opencode/storage/message", isDirectory: true)
+
+        guard fileManager.fileExists(atPath: messagesRoot.path) else {
+            var placeholder = ProviderUsage.placeholder(kind: .opencode, title: "OpenCode")
+            placeholder.state = .missing
+            return placeholder
+        }
+
+        var total: Int64 = 0
+        var todayTotal: Int64 = 0
+        var cost: Double = 0
+        var todayCost: Double = 0
+        var lastActivity: Date?
+
+        guard let enumerator = fileManager.enumerator(
+            at: messagesRoot,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return ProviderUsage.placeholder(kind: .opencode, title: "OpenCode")
+        }
+
+        for case let url as URL in enumerator where url.pathExtension == "json" {
+            guard
+                let data = try? Data(contentsOf: url, options: [.mappedIfSafe]),
+                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                continue
+            }
+
+            guard let tokens = object["tokens"] as? [String: Any] else { continue }
+
+            let input = int64(tokens["input"])
+            let output = int64(tokens["output"])
+            let reasoning = int64(tokens["reasoning"])
+            var cacheRead: Int64 = 0
+            var cacheWrite: Int64 = 0
+            if let cache = tokens["cache"] as? [String: Any] {
+                cacheRead = int64(cache["read"])
+                cacheWrite = int64(cache["write"])
+            }
+
+            let messageTotal = input + output + reasoning + cacheRead + cacheWrite
+            guard messageTotal > 0 else { continue }
+
+            total += messageTotal
+
+            let messageCost = double(object["cost"])
+            cost += messageCost
+
+            let timestamp = parseOpenCodeTime(object["time"])
+            if let timestamp {
+                lastActivity = maxDate(lastActivity, timestamp)
+                if calendar.isDateInToday(timestamp) {
+                    todayTotal += messageTotal
+                    todayCost += messageCost
+                }
+            }
+        }
+
+        return ProviderUsage(
+            kind: .opencode,
+            title: "OpenCode",
+            state: total > 0 ? .ready : .empty,
+            totalTokens: total,
+            todayTokens: todayTotal,
+            lastActivity: lastActivity,
+            limits: [],
+            cost: cost,
+            todayCost: todayCost
+        )
+    }
+
+    private func parseOpenCodeTime(_ value: Any?) -> Date? {
+        guard let time = value as? [String: Any] else { return nil }
+        let millis = double(time["created"])
+        guard millis > 0 else { return nil }
+        return Date(timeIntervalSince1970: millis / 1000)
     }
 
     private var home: URL {

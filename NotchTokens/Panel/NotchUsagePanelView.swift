@@ -28,10 +28,11 @@ final class NotchUsagePanelView: NSView {
     private var isExpanded = false
     private var isPinned = false
     private var buttonFrames: [ButtonKind: CGRect] = [:]
+    private var hoveredButton: ButtonKind?
     private var collapseWorkItem: DispatchWorkItem?
 
     private static let collapsedSize = CGSize(width: 264, height: 38)
-    private static let expandedSize = CGSize(width: 380, height: 256)
+    private static let expandedSize = CGSize(width: 380, height: 292)
 
     private var targetSize: CGSize {
         isExpanded ? Self.expandedSize : Self.collapsedSize
@@ -67,7 +68,7 @@ final class NotchUsagePanelView: NSView {
 
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect],
+            options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved, .inVisibleRect],
             owner: self
         )
         trackingArea = area
@@ -81,7 +82,24 @@ final class NotchUsagePanelView: NSView {
         setExpanded(true)
     }
 
+    override func mouseMoved(with event: NSEvent) {
+        guard isExpanded else { return }
+        let point = convert(event.locationInWindow, from: nil)
+        let newHover = buttonFrames.first(where: { $0.value.contains(point) })?.key
+        if newHover != hoveredButton {
+            hoveredButton = newHover
+            NSCursor.arrow.set()
+            if newHover != nil { NSCursor.pointingHand.set() }
+            needsDisplay = true
+        }
+    }
+
     override func mouseExited(with event: NSEvent) {
+        if hoveredButton != nil {
+            hoveredButton = nil
+            NSCursor.arrow.set()
+            needsDisplay = true
+        }
         guard !isPinned else { return }
         collapseWorkItem?.cancel()
 
@@ -370,17 +388,32 @@ final class NotchUsagePanelView: NSView {
     }
 
     private func drawFooter() {
-        var x = bounds.width - 16 - 24
+        let buttonSize: CGFloat = 28
+        let spacing: CGFloat = 6
+        var x = bounds.width - 16 - buttonSize
+
         for kind in ButtonKind.allCases.reversed() {
-            let frame = CGRect(x: x, y: bounds.height - 28, width: 24, height: 24)
+            let frame = CGRect(x: x, y: bounds.height - buttonSize - 8, width: buttonSize, height: buttonSize)
             buttonFrames[kind] = frame
 
-            NSColor.white.withAlphaComponent(0.06).setFill()
-            NSBezierPath(ovalIn: frame).fill()
+            let isHovered = hoveredButton == kind
+            let isActive = kind == .pin && isPinned
+
+            let fillAlpha: CGFloat = isHovered ? 0.22 : (isActive ? 0.16 : 0.10)
+            let strokeAlpha: CGFloat = isHovered ? 0.28 : 0.14
+            let iconAlpha: CGFloat = isHovered ? 1.0 : (isActive ? 0.95 : 0.78)
+
+            let path = NSBezierPath(ovalIn: frame)
+            NSColor.white.withAlphaComponent(fillAlpha).setFill()
+            path.fill()
+            NSColor.white.withAlphaComponent(strokeAlpha).setStroke()
+            path.lineWidth = 1
+            path.stroke()
 
             let symbolName = kind == .pin && isPinned ? "pin.fill" : kind.symbolName
-            drawSymbol(symbolName, in: frame.insetBy(dx: 7, dy: 7), color: NSColor.white.withAlphaComponent(0.78))
-            x -= 30
+            drawSymbol(symbolName, in: frame.insetBy(dx: 8, dy: 8), color: NSColor.white.withAlphaComponent(iconAlpha))
+
+            x -= (buttonSize + spacing)
         }
     }
 

@@ -9,6 +9,14 @@ nonisolated enum ProviderKind: String {
     case claude
     case codex
     case opencode
+
+    var assetName: String {
+        switch self {
+        case .claude: "claudecode-color"
+        case .codex: "codex"
+        case .opencode: "opencode"
+        }
+    }
 }
 
 nonisolated enum ProviderState: Equatable {

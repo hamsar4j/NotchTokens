@@ -358,17 +358,10 @@ final class NotchUsagePanelView: NSView {
 
     private func drawProviderLogo(_ provider: ProviderUsage, in rect: CGRect) {
         let bgPath = NSBezierPath(roundedRect: rect, xRadius: 8, yRadius: 8)
-        NSColor.white.withAlphaComponent(0.06).setFill()
+        NSColor.white.setFill()
         bgPath.fill()
 
-        let assetName: String
-        switch provider.kind {
-        case .claude: assetName = "claudecode-color"
-        case .codex: assetName = "codex-color"
-        case .opencode: assetName = "opencode"
-        }
-
-        if let image = NSImage(named: assetName) {
+        if let image = NSImage(named: provider.kind.assetName) {
             let fit = Self.aspectFitRect(imageSize: image.size, in: rect.insetBy(dx: 4, dy: 4))
             image.draw(in: fit, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
         } else {

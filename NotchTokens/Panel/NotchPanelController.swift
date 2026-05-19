@@ -8,7 +8,7 @@ import AppKit
 @MainActor
 final class NotchPanelController {
     private let panel: NSPanel
-    private var currentSize = CGSize(width: 220, height: 38)
+    private var currentSize = CGSize(width: 340, height: 68)
 
     init(monitor: UsageMonitor, onOpenSettings: @escaping () -> Void) {
         panel = NSPanel(

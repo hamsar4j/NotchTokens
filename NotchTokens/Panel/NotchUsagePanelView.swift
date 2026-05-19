@@ -34,7 +34,7 @@ final class NotchUsagePanelView: NSView {
     private var hoveredButton: ButtonKind?
     private var collapseWorkItem: DispatchWorkItem?
 
-    private static let collapsedSize = CGSize(width: 264, height: 38)
+    private static let collapsedSize = CGSize(width: 340, height: 68)
     private static let expandedSize = CGSize(width: 380, height: 292)
 
     private var targetSize: CGSize {
@@ -194,45 +194,52 @@ final class NotchUsagePanelView: NSView {
     }
 
     private func drawCollapsed() {
-        let kinds: [(ProviderKind, String)] = [(.claude, "C"), (.codex, "X"), (.opencode, "O")]
-        let padding: CGFloat = 12
-        let gap: CGFloat = 8
+        let kinds: [ProviderKind] = [.claude, .codex, .opencode]
+        let padding: CGFloat = 14
+        let gap: CGFloat = 10
         let segmentCount = CGFloat(kinds.count)
         let segmentWidth = (bounds.width - padding * 2 - gap * (segmentCount - 1)) / segmentCount
-        let barHeight: CGFloat = 4
-        let barY = bounds.midY - barHeight / 2 + 1
+        let barHeight: CGFloat = 5
+        let contentCenterY = bounds.height - 19
+        let barY = contentCenterY - barHeight / 2
 
-        for (index, entry) in kinds.enumerated() {
-            let p = provider(entry.0)
+        for (index, kind) in kinds.enumerated() {
+            let p = provider(kind)
             drawSegment(
                 x: padding + CGFloat(index) * (segmentWidth + gap),
                 width: segmentWidth,
+                contentCenterY: contentCenterY,
                 barY: barY,
                 barHeight: barHeight,
-                label: entry.1,
+                provider: p,
                 percent: peakPercent(for: p),
                 hasData: p?.state == .ready
             )
         }
     }
 
-    private func drawSegment(x: CGFloat, width: CGFloat, barY: CGFloat, barHeight: CGFloat, label: String, percent: Double?, hasData: Bool) {
-        let dotSize: CGFloat = 14
-        let dotRect = CGRect(x: x, y: bounds.midY - dotSize / 2, width: dotSize, height: dotSize)
+    private func drawSegment(
+        x: CGFloat,
+        width: CGFloat,
+        contentCenterY: CGFloat,
+        barY: CGFloat,
+        barHeight: CGFloat,
+        provider: ProviderUsage?,
+        percent: Double?,
+        hasData: Bool
+    ) {
+        let logoSize: CGFloat = 20
+        let logoRect = CGRect(x: x, y: contentCenterY - logoSize / 2, width: logoSize, height: logoSize)
 
-        NSColor.white.withAlphaComponent(0.10).setFill()
-        NSBezierPath(ovalIn: dotRect).fill()
+        if let provider {
+            drawCompactProviderLogo(provider, in: logoRect)
+        } else {
+            drawSymbol("questionmark", in: logoRect.insetBy(dx: 4, dy: 4), color: NSColor.white.withAlphaComponent(0.45))
+        }
 
-        drawText(
-            label,
-            in: dotRect.insetBy(dx: 0, dy: 0),
-            font: .systemFont(ofSize: 9, weight: .bold),
-            color: NSColor.white.withAlphaComponent(0.85),
-            alignment: .center
-        )
-
-        let barX = x + dotSize + 6
-        let barWidth = width - dotSize - 6 - 32
+        let textWidth: CGFloat = 34
+        let barX = logoRect.maxX + 7
+        let barWidth = max(10, width - logoSize - 7 - textWidth - 5)
 
         let bar = CGRect(x: barX, y: barY, width: barWidth, height: barHeight)
         NSColor.white.withAlphaComponent(0.10).setFill()
@@ -244,7 +251,7 @@ final class NotchUsagePanelView: NSView {
             roundedPath(CGRect(x: bar.minX, y: bar.minY, width: fillWidth, height: barHeight), radius: barHeight / 2).fill()
         }
 
-        let textRect = CGRect(x: barX + barWidth + 4, y: bounds.midY - 7, width: 28, height: 14)
+        let textRect = CGRect(x: bar.maxX + 5, y: contentCenterY - 8, width: textWidth, height: 16)
         let text = hasData ? (percent.map { "\(Int($0.rounded()))%" } ?? "--") : "--"
         drawText(text, in: textRect, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: .white, alignment: .right)
     }
@@ -372,6 +379,19 @@ final class NotchUsagePanelView: NSView {
             image.draw(in: fit, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
         } else {
             drawSymbol("questionmark", in: rect.insetBy(dx: 8, dy: 8), color: NSColor.white.withAlphaComponent(0.4))
+        }
+    }
+
+    private func drawCompactProviderLogo(_ provider: ProviderUsage, in rect: CGRect) {
+        let bgPath = NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6)
+        NSColor.white.withAlphaComponent(0.95).setFill()
+        bgPath.fill()
+
+        if let image = NSImage(named: provider.kind.assetName) {
+            let fit = Self.aspectFitRect(imageSize: image.size, in: rect.insetBy(dx: 3, dy: 3))
+            image.draw(in: fit, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
+        } else {
+            drawSymbol("questionmark", in: rect.insetBy(dx: 5, dy: 5), color: NSColor.black.withAlphaComponent(0.45))
         }
     }
 

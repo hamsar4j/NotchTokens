@@ -37,7 +37,6 @@ nonisolated struct LocalUsageReader {
         var cost: Double = 0
         var todayCost: Double = 0
         var monthCost: Double = 0
-        var modelStats: [String: (matched: Bool, tokens: Int64, cost: Double)] = [:]
 
         for file in jsonlFiles(under: projectsRoot) {
             forEachJSONLine(in: file) { object in
@@ -86,12 +85,6 @@ nonisolated struct LocalUsageReader {
                 ) ?? 0
                 cost += recordCost
 
-                var stats = modelStats[modelName] ?? (rate != nil, 0, 0)
-                stats.matched = rate != nil
-                stats.tokens += recordTotal
-                stats.cost += recordCost
-                modelStats[modelName] = stats
-
                 if let timestamp = parseDate(object["timestamp"] as? String) {
                     lastActivity = maxDate(lastActivity, timestamp)
                     if calendar.isDateInToday(timestamp) {
@@ -104,8 +97,6 @@ nonisolated struct LocalUsageReader {
                 }
             }
         }
-
-        Self.logModelStats(provider: "Claude", stats: modelStats)
 
         if total == 0 {
             let fallback = readClaudeStatsCache(at: claudeRoot.appendingPathComponent("stats-cache.json"))
@@ -339,21 +330,6 @@ nonisolated struct LocalUsageReader {
         let now = Date()
         let start = now.addingTimeInterval(-Self.rollingThirtyDayInterval)
         return date >= start && date <= now
-    }
-
-    static func logModelStats(provider: String, stats: [String: (matched: Bool, tokens: Int64, cost: Double)]) {
-        guard !stats.isEmpty else { return }
-        let sorted = stats.sorted { $0.value.cost > $1.value.cost }
-        let totalTokens = sorted.reduce(Int64(0)) { $0 + $1.value.tokens }
-        print("[\(provider) pricing] \(sorted.count) model(s):")
-        for (name, info) in sorted {
-            let flag = info.matched ? "OK " : "MISS"
-            let cost = String(format: "%9.2f", info.cost)
-            let shareValue = totalTokens > 0 ? (Double(info.tokens) / Double(totalTokens)) * 100 : 0
-            let tokenShare = String(format: "%5.1f%%", shareValue)
-            let tokens = info.tokens
-            print("  [\(flag)] \(name)  tokens=\(tokens)  token_share=\(tokenShare)  cost=$\(cost)")
-        }
     }
 
     private func readCodexConfigModel(at file: URL) -> String? {

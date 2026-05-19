@@ -194,26 +194,36 @@ final class NotchUsagePanelView: NSView {
     }
 
     private func drawCollapsed() {
-        let kinds: [ProviderKind] = [.claude, .codex, .opencode]
+        let providers = snapshot.providers
+        guard !providers.isEmpty else {
+            drawText(
+                "No providers",
+                in: CGRect(x: 14, y: bounds.height - 28, width: bounds.width - 28, height: 16),
+                font: .systemFont(ofSize: 11, weight: .semibold),
+                color: NSColor.white.withAlphaComponent(0.62),
+                alignment: .center
+            )
+            return
+        }
+
         let padding: CGFloat = 14
         let gap: CGFloat = 10
-        let segmentCount = CGFloat(kinds.count)
+        let segmentCount = CGFloat(providers.count)
         let segmentWidth = (bounds.width - padding * 2 - gap * (segmentCount - 1)) / segmentCount
         let barHeight: CGFloat = 5
         let contentCenterY = bounds.height - 19
         let barY = contentCenterY - barHeight / 2
 
-        for (index, kind) in kinds.enumerated() {
-            let p = provider(kind)
+        for (index, provider) in providers.enumerated() {
             drawSegment(
                 x: padding + CGFloat(index) * (segmentWidth + gap),
                 width: segmentWidth,
                 contentCenterY: contentCenterY,
                 barY: barY,
                 barHeight: barHeight,
-                provider: p,
-                percent: peakPercent(for: p),
-                hasData: p?.state == .ready
+                provider: provider,
+                percent: peakPercent(for: provider),
+                hasData: provider.state == .ready
             )
         }
     }
@@ -263,13 +273,23 @@ final class NotchUsagePanelView: NSView {
         let rowGap: CGFloat = 10
         var y: CGFloat = 36
 
-        for kind in [ProviderKind.claude, .codex, .opencode] {
-            if let p = provider(kind) {
-                drawRow(p, in: CGRect(x: 16, y: y, width: bounds.width - 32, height: rowHeight))
-            }
+        if snapshot.providers.isEmpty {
+            drawText(
+                "No providers enabled",
+                in: CGRect(x: 16, y: y + 24, width: bounds.width - 32, height: 16),
+                font: .systemFont(ofSize: 12, weight: .medium),
+                color: NSColor.white.withAlphaComponent(0.52),
+                alignment: .center
+            )
+            drawFooter()
+            return
+        }
+
+        for (index, provider) in snapshot.providers.enumerated() {
+            drawRow(provider, in: CGRect(x: 16, y: y, width: bounds.width - 32, height: rowHeight))
             y += rowHeight
 
-            if kind != .opencode {
+            if index < snapshot.providers.count - 1 {
                 NSColor.white.withAlphaComponent(0.06).setFill()
                 NSRect(x: 16, y: y + 4, width: bounds.width - 32, height: 1).fill()
                 y += rowGap
@@ -437,10 +457,6 @@ final class NotchUsagePanelView: NSView {
     }
 
     // MARK: - Helpers
-
-    private func provider(_ kind: ProviderKind) -> ProviderUsage? {
-        snapshot.providers.first(where: { $0.kind == kind })
-    }
 
     private func peakPercent(for provider: ProviderUsage?) -> Double? {
         guard let provider, !provider.limits.isEmpty else { return nil }

@@ -60,7 +60,7 @@ OpenCode does **not** consult this table — it has its own pre-computed `cost` 
 
 ### Settings + budget-driven limits
 
-User settings live in `~/Library/Application Support/NotchTokens/config.json`, persisted via `SettingsStore` (an `ObservableObject` so the SwiftUI settings window binds directly to it). Codex and OpenCode have no native server-side rate-limit windows, so the user sets a monthly $ budget per provider; `UsageMonitor.refresh()` synthesizes a `LimitWindow(name: "Month", usedPercent: monthCost/budget * 100, resetsAt: startOfNextMonth)` for any provider with a budget and no real limits. The UI bar/percent/caption code doesn't know or care that the window is synthetic — it renders the same way as Claude's real 5h/7d windows.
+User settings live in `~/Library/Application Support/NotchTokens/config.json`, persisted via `SettingsStore` (an `ObservableObject` so the SwiftUI settings window binds directly to it). Codex and OpenCode budgets use a rolling 30-day $ window; `LocalUsageReader` sums their cost from the last 30 days and `UsageMonitor.refresh()` appends a synthetic `LimitWindow(name: "30d", usedPercent: rollingCost/budget * 100, resetsAt: nil)` for any provider with a budget. The UI bar/percent/caption code doesn't know or care that the window is synthetic — it renders the same way as Claude's real 5h/7d windows.
 
 The settings window itself is SwiftUI inside an `NSHostingController`-backed `NSWindow` (regular, focusable — not the `nonactivatingPanel` we use for the notch), opened from the gear button in the panel footer.
 

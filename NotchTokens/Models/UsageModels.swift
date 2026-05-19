@@ -44,9 +44,11 @@ nonisolated struct ProviderUsage {
     var todayTokens: Int64
     var lastActivity: Date?
     var limits: [LimitWindow]
+    var limitStatus: String? = nil
     var cost: Double
     var todayCost: Double
-    var monthCost: Double
+    var costWindowCost: Double
+    var costWindowLabel: String = "this month"
 
     static func placeholder(kind: ProviderKind, title: String) -> ProviderUsage {
         ProviderUsage(
@@ -59,7 +61,8 @@ nonisolated struct ProviderUsage {
             limits: [],
             cost: 0,
             todayCost: 0,
-            monthCost: 0
+            costWindowCost: 0,
+            costWindowLabel: "this month"
         )
     }
 }

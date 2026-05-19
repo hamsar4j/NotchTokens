@@ -6,6 +6,8 @@
 import Foundation
 
 nonisolated struct LocalUsageReader {
+    private static let rollingThirtyDayInterval: TimeInterval = 30 * 24 * 60 * 60
+
     private let fileManager = FileManager.default
     private let calendar = Calendar.current
     private let pricing: PricingTable
@@ -35,6 +37,7 @@ nonisolated struct LocalUsageReader {
         var cost: Double = 0
         var todayCost: Double = 0
         var monthCost: Double = 0
+        var modelStats: [String: (matched: Bool, tokens: Int64, cost: Double)] = [:]
 
         for file in jsonlFiles(under: projectsRoot) {
             forEachJSONLine(in: file) { object in
@@ -48,8 +51,19 @@ nonisolated struct LocalUsageReader {
                 let input = int64(usage["input_tokens"])
                 let output = int64(usage["output_tokens"])
                 let cacheRead = int64(usage["cache_read_input_tokens"])
-                let cacheWrite = int64(usage["cache_creation_input_tokens"])
-                let recordTotal = input + output + cacheRead + cacheWrite
+                let cacheWriteTotal = int64(usage["cache_creation_input_tokens"])
+
+                var cacheWrite1h: Int64 = 0
+                var cacheWrite5m: Int64 = cacheWriteTotal
+                if let breakdown = usage["cache_creation"] as? [String: Any] {
+                    cacheWrite1h = int64(breakdown["ephemeral_1h_input_tokens"])
+                    cacheWrite5m = int64(breakdown["ephemeral_5m_input_tokens"])
+                    if cacheWrite1h + cacheWrite5m == 0 {
+                        cacheWrite5m = cacheWriteTotal
+                    }
+                }
+
+                let recordTotal = input + output + cacheRead + cacheWriteTotal
 
                 guard recordTotal > 0 else { return }
 
@@ -61,14 +75,22 @@ nonisolated struct LocalUsageReader {
 
                 total += recordTotal
 
-                let rate = pricing.rate(for: message["model"] as? String)
+                let modelName = (message["model"] as? String) ?? "<missing>"
+                let rate = pricing.rate(for: modelName)
                 let recordCost = rate?.cost(
                     input: input,
                     output: output,
                     cachedRead: cacheRead,
-                    cacheWrite: cacheWrite
+                    cacheWrite5m: cacheWrite5m,
+                    cacheWrite1h: cacheWrite1h
                 ) ?? 0
                 cost += recordCost
+
+                var stats = modelStats[modelName] ?? (rate != nil, 0, 0)
+                stats.matched = rate != nil
+                stats.tokens += recordTotal
+                stats.cost += recordCost
+                modelStats[modelName] = stats
 
                 if let timestamp = parseDate(object["timestamp"] as? String) {
                     lastActivity = maxDate(lastActivity, timestamp)
@@ -82,6 +104,8 @@ nonisolated struct LocalUsageReader {
                 }
             }
         }
+
+        Self.logModelStats(provider: "Claude", stats: modelStats)
 
         if total == 0 {
             let fallback = readClaudeStatsCache(at: claudeRoot.appendingPathComponent("stats-cache.json"))
@@ -100,7 +124,7 @@ nonisolated struct LocalUsageReader {
             limits: [],
             cost: cost,
             todayCost: todayCost,
-            monthCost: monthCost
+            costWindowCost: monthCost
         )
     }
 
@@ -127,7 +151,7 @@ nonisolated struct LocalUsageReader {
         var latestLimits: [LimitWindow] = []
         var cost: Double = 0
         var todayCost: Double = 0
-        var monthCost: Double = 0
+        var rollingThirtyDayCost: Double = 0
 
         for root in roots {
             for file in jsonlFiles(under: root) {
@@ -194,7 +218,8 @@ nonisolated struct LocalUsageReader {
                     input: max(0, inputRaw - cached),
                     output: int64(raw["output_tokens"]),
                     cachedRead: cached,
-                    cacheWrite: 0
+                    cacheWrite5m: 0,
+                    cacheWrite1h: 0
                 ) ?? 0
                 cost += sessionCost
 
@@ -202,8 +227,8 @@ nonisolated struct LocalUsageReader {
                     todayTotal += sessionTotal
                     todayCost += sessionCost
                 }
-                if let sessionLastActivity, isInCurrentMonth(sessionLastActivity) {
-                    monthCost += sessionCost
+                if let sessionLastActivity, isInRollingThirtyDays(sessionLastActivity) {
+                    rollingThirtyDayCost += sessionCost
                 }
             }
         }
@@ -218,7 +243,8 @@ nonisolated struct LocalUsageReader {
             limits: latestLimits,
             cost: cost,
             todayCost: todayCost,
-            monthCost: monthCost
+            costWindowCost: rollingThirtyDayCost,
+            costWindowLabel: "last 30d"
         )
     }
 
@@ -236,7 +262,7 @@ nonisolated struct LocalUsageReader {
         var todayTotal: Int64 = 0
         var cost: Double = 0
         var todayCost: Double = 0
-        var monthCost: Double = 0
+        var rollingThirtyDayCost: Double = 0
         var lastActivity: Date?
 
         guard let enumerator = fileManager.enumerator(
@@ -282,8 +308,8 @@ nonisolated struct LocalUsageReader {
                     todayTotal += messageTotal
                     todayCost += messageCost
                 }
-                if isInCurrentMonth(timestamp) {
-                    monthCost += messageCost
+                if isInRollingThirtyDays(timestamp) {
+                    rollingThirtyDayCost += messageCost
                 }
             }
         }
@@ -298,7 +324,8 @@ nonisolated struct LocalUsageReader {
             limits: [],
             cost: cost,
             todayCost: todayCost,
-            monthCost: monthCost
+            costWindowCost: rollingThirtyDayCost,
+            costWindowLabel: "last 30d"
         )
     }
 
@@ -306,6 +333,27 @@ nonisolated struct LocalUsageReader {
         let now = Date()
         return calendar.component(.year, from: date) == calendar.component(.year, from: now)
             && calendar.component(.month, from: date) == calendar.component(.month, from: now)
+    }
+
+    private func isInRollingThirtyDays(_ date: Date) -> Bool {
+        let now = Date()
+        let start = now.addingTimeInterval(-Self.rollingThirtyDayInterval)
+        return date >= start && date <= now
+    }
+
+    static func logModelStats(provider: String, stats: [String: (matched: Bool, tokens: Int64, cost: Double)]) {
+        guard !stats.isEmpty else { return }
+        let sorted = stats.sorted { $0.value.cost > $1.value.cost }
+        let totalTokens = sorted.reduce(Int64(0)) { $0 + $1.value.tokens }
+        print("[\(provider) pricing] \(sorted.count) model(s):")
+        for (name, info) in sorted {
+            let flag = info.matched ? "OK " : "MISS"
+            let cost = String(format: "%9.2f", info.cost)
+            let shareValue = totalTokens > 0 ? (Double(info.tokens) / Double(totalTokens)) * 100 : 0
+            let tokenShare = String(format: "%5.1f%%", shareValue)
+            let tokens = info.tokens
+            print("  [\(flag)] \(name)  tokens=\(tokens)  token_share=\(tokenShare)  cost=$\(cost)")
+        }
     }
 
     private func readCodexConfigModel(at file: URL) -> String? {

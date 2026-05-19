@@ -10,12 +10,28 @@ nonisolated struct ModelRate: Equatable {
     let output: Double
     let cachedRead: Double
     let cacheWrite: Double
+    let inputAbove200k: Double?
+    let outputAbove200k: Double?
+    let cachedReadAbove200k: Double?
+    let cacheWriteAbove200k: Double?
+    let cacheWrite1h: Double?
 
-    func cost(input: Int64, output: Int64, cachedRead: Int64, cacheWrite: Int64) -> Double {
-        Double(input) * self.input
-            + Double(output) * self.output
-            + Double(cachedRead) * self.cachedRead
-            + Double(cacheWrite) * self.cacheWrite
+    func cost(input: Int64, output: Int64, cachedRead: Int64, cacheWrite5m: Int64, cacheWrite1h: Int64) -> Double {
+        let totalCacheWrite = cacheWrite5m + cacheWrite1h
+        let contextSize = input + cachedRead + totalCacheWrite
+        let useTier = contextSize > 200_000 && inputAbove200k != nil
+
+        let i = useTier ? (inputAbove200k ?? self.input) : self.input
+        let o = useTier ? (outputAbove200k ?? self.output) : self.output
+        let cr = useTier ? (cachedReadAbove200k ?? self.cachedRead) : self.cachedRead
+        let cw5m = useTier ? (cacheWriteAbove200k ?? self.cacheWrite) : self.cacheWrite
+        let cw1h = self.cacheWrite1h ?? cw5m
+
+        return Double(input) * i
+            + Double(output) * o
+            + Double(cachedRead) * cr
+            + Double(cacheWrite5m) * cw5m
+            + Double(cacheWrite1h) * cw1h
     }
 }
 
@@ -81,7 +97,12 @@ nonisolated struct PricingTable {
                 input: input,
                 output: output,
                 cachedRead: cachedRead,
-                cacheWrite: cacheWrite
+                cacheWrite: cacheWrite,
+                inputAbove200k: entry["input_cost_per_token_above_200k_tokens"] as? Double,
+                outputAbove200k: entry["output_cost_per_token_above_200k_tokens"] as? Double,
+                cachedReadAbove200k: entry["cache_read_input_token_cost_above_200k_tokens"] as? Double,
+                cacheWriteAbove200k: entry["cache_creation_input_token_cost_above_200k_tokens"] as? Double,
+                cacheWrite1h: entry["cache_creation_input_token_cost_above_1hr"] as? Double
             )
         }
 

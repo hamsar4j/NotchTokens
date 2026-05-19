@@ -24,7 +24,7 @@ final class UsageMonitor {
     init(settings: SettingsStore) {
         self.settings = settings
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
                 self?.refresh()
             }
         }
@@ -40,16 +40,18 @@ final class UsageMonitor {
         let currentSettings = settings.settings
         Task.detached(priority: .utility) {
             async let _: Void = pricingFetcher.refreshIfStale()
-            async let limitsTask: [LimitWindow] = claudeUsage.fetchLimits()
+            async let limitsTask: ClaudeLimitFetch = claudeUsage.fetchLimits()
 
             let pricing = await pricingFetcher.current()
             let reader = LocalUsageReader(pricing: pricing)
             var snapshot = reader.readSnapshot()
-            let limits = await limitsTask
+            let claudeLimits = await limitsTask
 
-            if !limits.isEmpty,
-               let index = snapshot.providers.firstIndex(where: { $0.kind == .claude }) {
-                snapshot.providers[index].limits = limits
+            if let index = snapshot.providers.firstIndex(where: { $0.kind == .claude }) {
+                snapshot.providers[index].limitStatus = claudeLimits.statusMessage
+                if !claudeLimits.limits.isEmpty {
+                    snapshot.providers[index].limits = claudeLimits.limits
+                }
                 if snapshot.providers[index].state == .empty {
                     snapshot.providers[index].state = .ready
                 }
@@ -58,25 +60,39 @@ final class UsageMonitor {
             for index in snapshot.providers.indices {
                 let provider = snapshot.providers[index]
                 guard
-                    provider.limits.isEmpty,
-                    let budget = currentSettings.monthlyBudget(for: provider.kind),
+                    let budget = currentSettings.budget(for: provider.kind),
                     budget > 0
                 else { continue }
 
-                let percent = min(100, (provider.monthCost / budget) * 100)
-                let reset = startOfNextMonth()
-                snapshot.providers[index].limits = [
-                    LimitWindow(name: "Month", usedPercent: percent, resetsAt: reset)
-                ]
+                let percent = min(100, (provider.costWindowCost / budget) * 100)
+                let reset = budgetWindowReset(for: provider.kind)
+                snapshot.providers[index].limits.append(
+                    LimitWindow(name: budgetWindowName(for: provider.kind), usedPercent: percent, resetsAt: reset)
+                )
                 if snapshot.providers[index].state == .empty {
                     snapshot.providers[index].state = .ready
                 }
             }
 
-            await MainActor.run { [weak self] in
-                self?.snapshot = snapshot
+            let refreshedSnapshot = snapshot
+            await MainActor.run { [weak self, refreshedSnapshot] in
+                self?.snapshot = refreshedSnapshot
             }
         }
+    }
+}
+
+private nonisolated func budgetWindowName(for kind: ProviderKind) -> String {
+    switch kind {
+    case .claude: "Month"
+    case .codex, .opencode: "30d"
+    }
+}
+
+private nonisolated func budgetWindowReset(for kind: ProviderKind) -> Date? {
+    switch kind {
+    case .claude: startOfNextMonth()
+    case .codex, .opencode: nil
     }
 }
 

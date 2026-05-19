@@ -1,8 +1,17 @@
 {
   "images" : [
     {
-      "filename" : "codex.png",
-      "idiom" : "universal"
+      "filename" : "codex.svg",
+      "idiom" : "universal",
+      "scale" : "1x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "2x"
+    },
+    {
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
   "info" : {

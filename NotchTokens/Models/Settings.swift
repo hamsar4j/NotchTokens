@@ -11,7 +11,7 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
 
     static let `default` = Settings(codexBudget: nil, opencodeBudget: nil)
 
-    func monthlyBudget(for kind: ProviderKind) -> Double? {
+    func budget(for kind: ProviderKind) -> Double? {
         switch kind {
         case .claude: nil
         case .codex: codexBudget

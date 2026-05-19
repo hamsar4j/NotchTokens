@@ -45,14 +45,14 @@ private struct SettingsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Monthly Budgets")
+            Text("Rolling 30-Day Budgets")
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
             BudgetRow(label: "Codex", value: $store.settings.codexBudget)
             BudgetRow(label: "OpenCode", value: $store.settings.opencodeBudget)
 
-            Text("Claude Code uses live limits from Anthropic; no budget needed.")
+            Text("Codex and OpenCode budgets use the last 30 days. Claude Code uses live limits from Anthropic.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
 

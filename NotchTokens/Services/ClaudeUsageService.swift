@@ -5,26 +5,36 @@
 
 import Foundation
 
+nonisolated struct ClaudeLimitFetch {
+    var limits: [LimitWindow]
+    var statusMessage: String?
+}
+
 actor ClaudeUsageService {
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     private var failureCount = 0
     private var nextAllowedAttempt: Date?
+    private var cachedLimits: [LimitWindow] = []
+    private var lastLoggedStatus: String?
 
-    func fetchLimits() async -> [LimitWindow] {
+    func fetchLimits() async -> ClaudeLimitFetch {
         if let next = nextAllowedAttempt, next > Date() {
-            return []
+            return ClaudeLimitFetch(
+                limits: cachedLimits,
+                statusMessage: retryMessage("Claude limits retrying", nextAttempt: next)
+            )
         }
 
         guard let token = ClaudeCredentials.readAccessToken() else {
-            recordFailure(authProblem: true)
-            return []
+            return recordFailure("Claude credentials unavailable", authProblem: true)
         }
 
         var request = URLRequest(url: Self.endpoint, timeoutInterval: 8)
         request.httpMethod = "GET"
         request.addValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.addValue("application/json", forHTTPHeaderField: "Accept")
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.addValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.addValue("claude-cli/1.0 (external, notchtokens)", forHTTPHeaderField: "User-Agent")
@@ -32,22 +42,27 @@ actor ClaudeUsageService {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let http = response as? HTTPURLResponse else {
-                recordFailure(authProblem: false)
-                return []
+                return recordFailure("Claude limits unavailable", authProblem: false)
             }
             guard (200..<300).contains(http.statusCode) else {
-                recordFailure(authProblem: http.statusCode == 401 || http.statusCode == 403)
-                return []
+                return recordFailure(
+                    "Claude limits HTTP \(http.statusCode)",
+                    authProblem: http.statusCode == 401 || http.statusCode == 403
+                )
             }
             guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                recordFailure(authProblem: false)
-                return []
+                return recordFailure("Claude limits response was not JSON", authProblem: false)
+            }
+            let limits = Self.parseLimits(from: object)
+            guard !limits.isEmpty else {
+                return recordFailure("Claude limits response had no quota windows", authProblem: false)
             }
             recordSuccess()
-            return Self.parseLimits(from: object)
+            cachedLimits = limits
+            logStatus("Claude limits \(Self.format(limits))")
+            return ClaudeLimitFetch(limits: limits, statusMessage: nil)
         } catch {
-            recordFailure(authProblem: false)
-            return []
+            return recordFailure("Claude limits unavailable: \(error.localizedDescription)", authProblem: false)
         }
     }
 
@@ -56,11 +71,27 @@ actor ClaudeUsageService {
         nextAllowedAttempt = nil
     }
 
-    private func recordFailure(authProblem: Bool) {
+    private func recordFailure(_ message: String, authProblem: Bool) -> ClaudeLimitFetch {
         failureCount += 1
         let base: Double = authProblem ? 120 : 60
         let delay = min(600, base * pow(2.0, Double(failureCount - 1)))
-        nextAllowedAttempt = Date().addingTimeInterval(delay)
+        let next = Date().addingTimeInterval(delay)
+        nextAllowedAttempt = next
+
+        let status = retryMessage(message, nextAttempt: next)
+        logStatus(status)
+        return ClaudeLimitFetch(limits: cachedLimits, statusMessage: status)
+    }
+
+    private func retryMessage(_ message: String, nextAttempt: Date) -> String {
+        let seconds = max(1, Int(nextAttempt.timeIntervalSinceNow.rounded(.up)))
+        return "\(message); retry in \(seconds)s"
+    }
+
+    private func logStatus(_ message: String) {
+        guard message != lastLoggedStatus else { return }
+        lastLoggedStatus = message
+        print("[Claude usage] \(message)")
     }
 
     static func parseLimits(from object: [String: Any]) -> [LimitWindow] {
@@ -123,11 +154,25 @@ actor ClaudeUsageService {
                 return formatter.date(from: iso)
             }
             if let epoch = raw["resets_at"] as? Double {
-                return Date(timeIntervalSince1970: epoch)
+                return date(fromEpoch: epoch)
+            }
+            if let epoch = raw["resets_at"] as? Int {
+                return date(fromEpoch: Double(epoch))
             }
             return nil
         }()
 
         return LimitWindow(name: name, usedPercent: value, resetsAt: resetsAt)
+    }
+
+    private static func date(fromEpoch epoch: Double) -> Date {
+        let seconds = epoch > 10_000_000_000 ? epoch / 1000 : epoch
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    private static func format(_ limits: [LimitWindow]) -> String {
+        limits
+            .map { "\($0.name)=\(Int($0.usedPercent.rounded()))%" }
+            .joined(separator: " ")
     }
 }

@@ -441,6 +441,9 @@ final class NotchUsagePanelView: NSView {
                 return "\(peak.name) window"
             }
         }
+        if let limitStatus = provider.limitStatus {
+            return limitStatus
+        }
         return "\(formatTokens(provider.totalTokens)) tokens"
     }
 
@@ -453,12 +456,13 @@ final class NotchUsagePanelView: NSView {
         if provider.todayTokens > 0 {
             parts.append("\(formatTokens(provider.todayTokens)) today")
         }
-        if provider.monthCost > 0 {
-            parts.append("\(formatCost(provider.monthCost)) this month")
+        if provider.costWindowCost > 0 {
+            parts.append("\(formatCost(provider.costWindowCost)) \(provider.costWindowLabel)")
         } else if provider.cost > 0 {
             parts.append(formatCost(provider.cost))
         }
-        if let resets = provider.limits.first?.resetsAt {
+        if let peak = provider.limits.max(by: { $0.usedPercent < $1.usedPercent }),
+           let resets = peak.resetsAt {
             parts.append("resets \(relativeString(resets))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

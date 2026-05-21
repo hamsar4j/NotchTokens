@@ -2,7 +2,21 @@
 
 A macOS notch app that tracks token usage and cost across **Claude Code**, **OpenAI Codex CLI**, and **OpenCode** at a glance.
 
+<p align="center">
+  <img src="assets/notch-closed.png" alt="NotchTokens collapsed" width="600"><br>
+</p>
+
 Hover the notch to expand a panel with per-harness usage bars (green → yellow → red as you approach rate limits) and live cost totals. Click-pin to keep it open, or use the refresh button to reread usage immediately.
+
+<details>
+<summary>Screenshots in context</summary>
+
+<p align="center">
+  <img src="assets/notch-closed-wall.png" alt="Collapsed on desktop"><br>
+  <img src="assets/notch-open-wall.png" alt="Expanded on desktop">
+</p>
+
+</details>
 
 ## Requirements
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Codex and other coding agents when working with code in this repository.
+This file provides guidance to Claude Code, Codex, and other coding agents when working with code in this repository.
 
 ## Build & run
 
@@ -11,14 +11,17 @@ xcodebuild -scheme NotchTokens -configuration Debug -destination 'platform=macOS
 # Clean build
 xcodebuild -scheme NotchTokens -configuration Debug -destination 'platform=macOS' clean build
 
-# Run: open the built .app from DerivedData, or hit Cmd-R in Xcode
+# Run tests (hosted NotchTokensTests target)
+xcodebuild test -scheme NotchTokens -configuration Debug -destination 'platform=macOS'
+
+# Run: open the built .app from DerivedData, or hit ⌘R in Xcode
 ```
 
-There are no tests, no linter, no Swift Package — just the Xcode project. The target is a macOS menubar (`.accessory`) app.
+There is no linter and no Swift Package — just the Xcode project, plus a hosted `NotchTokensTests` unit-test target. The build target is a macOS menubar (`.accessory`) app.
 
-The project uses Xcode 16's `PBXFileSystemSynchronizedRootGroup`: any file added under `NotchTokens/` (including subdirectories) is automatically included in the target. No `.pbxproj` edits are needed when adding/moving Swift files, assets, or resources — moving a `.swift` file with `mv` into a new subdir works after a clean build.
+The project uses **Xcode 16's `PBXFileSystemSynchronizedRootGroup`**: any file added under `NotchTokens/` (including subdirectories) is automatically included in the target. No `.pbxproj` edits are needed when adding/moving Swift files, assets, or resources — moving a `.swift` file with `mv` into a new subdir Just Works after a clean build. (Test files go under `NotchTokensTests/`, which is its own synchronized group.)
 
-After edits, ignore SourceKit "Cannot find type / member" warnings — they appear because Xcode's index has not caught up. The `xcodebuild` command is the source of truth.
+After Edits, ignore SourceKit "Cannot find type / member" warnings — they appear because Xcode's index hasn't caught up. The `xcodebuild` command is the source of truth.
 
 ## Commit & Pull Request Guidelines
 
@@ -28,49 +31,57 @@ When a coding phase is completed, always suggest a commit message in the final h
 
 ## Architecture
 
-This is a notch-anchored AppKit panel that tracks token usage and cost for three AI coding harnesses: Claude Code, OpenAI Codex CLI, and OpenCode. The data flow:
+This is a notch-anchored AppKit panel that tracks token usage and cost for three AI coding harnesses: **Claude Code**, **OpenAI Codex CLI**, and **OpenCode**. The data flow:
 
-```text
+```
 UsageMonitor (timer, 60s)
-  ├── PricingFetcher (actor)
-  ├── ClaudeUsageService (actor, OAuth API)
-  └── LocalUsageReader (struct, JSONL/JSON files)
-      └── UsageSnapshot -> NotchUsagePanelView (NSView)
+  ├── PricingFetcher (actor) ──┐
+  ├── ClaudeUsageService (actor, OAuth API) ──┐
+  └── LocalUsageReader (struct, JSONL/JSON files) ──┐
+                                                     ▼
+                                              UsageSnapshot ──▶ NotchUsagePanelView (NSView)
 ```
 
-## Provider data
+### Where each provider's data comes from
 
-- **Claude Code**: token totals + cost come from per-message JSONL records under `~/.claude/projects/**/*.jsonl`. Dedupe key is `requestId-messageId` because retries can write duplicate usage rows. Live 5h / 7-day limit percentages come from Anthropic's undocumented `https://api.anthropic.com/api/oauth/usage` endpoint via `ClaudeUsageService`; auth token is read from the `Claude Code-credentials` Keychain entry via `/usr/bin/security` or `$CLAUDE_CODE_OAUTH_TOKEN`. Failures back off exponentially: 60 -> 600s, or 120 -> 600s for 401/403.
-- **Codex**: token totals + cost come from `~/.codex/sessions/**/*.jsonl` and `~/.codex/archived_sessions/**/*.jsonl`. Codex emits cumulative `total_token_usage` in `token_count` events, so take the last one per session, not a sum. Rate limits are pulled from `rate_limits` blocks on those events. Codex model name is read from `~/.codex/config.toml` when not present in JSONL. Codex `input_tokens` includes cached tokens, so subtract `cached_input_tokens` before pricing to avoid double-charging.
-- **OpenCode**: message data comes from `~/.local/share/opencode/storage/message/<session>/<msg>.json`. Each message already has a pre-computed `cost` field plus structured `tokens.{input,output,reasoning,cache.{read,write}}`, so sum those directly. OpenCode has no native rate-limit concept; budget bars are synthetic.
+- **Claude Code**: token totals + cost computed from per-message JSONL records under `~/.claude/projects/**/*.jsonl`. Dedupe key is `requestId-messageId` (retries write duplicate usage rows). Live 5h / 7-day limit *percentages* come from Anthropic's undocumented `https://api.anthropic.com/api/oauth/usage` endpoint (`ClaudeUsageService`); auth token is read from the `Claude Code-credentials` Keychain entry via `/usr/bin/security` (the same one the CLI itself uses) or `$CLAUDE_CODE_OAUTH_TOKEN`. Failures back off exponentially (60→600s, 120→600s for 401/403).
+- **Codex**: token totals + cost from `~/.codex/sessions/**/*.jsonl` and `~/.codex/archived_sessions/**/*.jsonl`. Codex emits *cumulative* `total_token_usage` in `token_count` events, so we take the last one per session, not a sum. Rate limits are pulled from any `rate_limits` block present on those events (Short / Long windows). **Codex does not record the model name in JSONL** — it's stored in `~/.codex/config.toml` (top-level `model = "..."`). The reader parses that file once per snapshot and uses it as the model for every session. **Codex's `input_tokens` is OpenAI-style and INCLUDES cached tokens**, so before pricing we subtract `cached_input_tokens` from `input_tokens` to avoid double-charging. Anthropic's `input_tokens` already excludes cache, so the Claude path doesn't do this subtraction.
+- **OpenCode**: walks `~/.local/share/opencode/storage/message/<session>/<msg>.json`. Each message file already has a pre-computed `cost` field and a structured `tokens.{input,output,reasoning,cache.{read,write}}` block, so we just sum — no pricing lookup needed. OpenCode has no native rate-limit concept, so its bar stays empty (`limits: []`), which is correct, not a bug.
 
-## Pricing
+`LocalUsageReader` takes an optional `baseDirectory` (defaults to the home dir) so it can be pointed at fixture directories in tests. Per-file reads skip anything over 50 MB (`boundedData`) to avoid materializing a pathological multi-GB JSONL into memory.
 
-`PricingFetcher` loads a `PricingTable` decoded from LiteLLM's `model_prices_and_context_window.json`. Sources are tried in this order:
+### Pricing
 
-1. Disk cache: `~/Library/Caches/NotchTokens/pricing.json` with a 24h TTL.
-2. Bundled fallback: `Resources/pricing-fallback.json`.
-3. Network: `https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` only when stale.
+`PricingFetcher` (actor) loads a `PricingTable` decoded from LiteLLM's `model_prices_and_context_window.json` (~1.4 MB). Sources are tried in this order:
 
-`PricingTable.rate(for:)` tries exact match, then strips date suffixes, then strips vendor prefixes, then tries prefix match. Unknown models return `nil`; their cost contribution is `0`, not an error.
+1. Disk cache: `~/Library/Caches/NotchTokens/pricing.json` (24h TTL).
+2. Bundled fallback: `Resources/pricing-fallback.json` (snapshot embedded at build time).
+3. Network: `https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json` (only when stale). Fetch failures back off exponentially (60s base, ×2, capped at 600s).
 
-OpenCode does not consult this table because it has its own per-message cost field.
+`PricingTable.rate(for:)` tries exact match → strip date suffix (`claude-sonnet-4-5-20250929` → `claude-sonnet-4-5`) → strip vendor prefix (`openai/gpt-5` → `gpt-5`) → prefix match. Returns `nil` for unknowns (cost contribution = 0, not an error).
 
-## UI structure
+OpenCode does **not** consult this table — it has its own pre-computed `cost` per message and we trust it.
 
-- `NotchPanelController` owns an `NSPanel` with `.borderless`, `.nonactivatingPanel`, and `.fullSizeContentView`, at `.statusBar` level. The `.nonactivatingPanel` mask is load-bearing.
-- `NotchUsagePanelView` is one hand-drawn `NSView` with collapsed pill and expanded panel layouts. Hover expansion is animated via `NSAnimationContext`; `setFrameSize` triggers redraws during animation.
-- Hover flicker is suppressed by a debounced collapse that checks `NSEvent.mouseLocation` against the window frame before collapsing.
-- The view is `isFlipped = true`, so image drawing must use `respectFlipped: true` or assets render upside down.
+### Logging
 
-## Settings and budget limits
+Use the shared `Log` namespace (`Log.swift`): `Logger` instances under subsystem `com.NotchTokens.NotchTokens` with categories `Pricing`, `ClaudeUsage`, `Credentials`. Prefer `os.Logger` over `print`. View with `log stream --predicate 'subsystem == "com.NotchTokens.NotchTokens"'`. Never log token/keychain contents.
 
-User settings live in `~/Library/Application Support/NotchTokens/config.json`, persisted via `SettingsStore`.
+### UI structure
 
-Codex and OpenCode budgets use a rolling 30-day dollar window. `LocalUsageReader` sums cost from the last 30 days, and `UsageMonitor.refresh()` appends a synthetic `LimitWindow(name: "30d", usedPercent: rollingCost / budget * 100, resetsAt: nil)` for any provider with a budget. The panel renders this synthetic window the same way it renders real provider limits.
+- `NotchPanelController` owns an `NSPanel` (`.borderless, .nonactivatingPanel, .fullSizeContentView`, level `.statusBar`, top-of-screen). The `.nonactivatingPanel` mask is load-bearing — without it the panel hides when the user clicks elsewhere.
+- `NotchUsagePanelView` is one `NSView` that draws everything by hand (no subviews). It has two layouts (collapsed pill / expanded panel) chosen at draw time by `isExpanded`. Hover expansion is animated via `NSAnimationContext` with a custom cubic-bezier curve; the `setFrameSize` override triggers continuous redraws during animation so the bars/text interpolate smoothly.
+- Hover flicker is suppressed by a debounced collapse: `mouseExited` schedules a `DispatchWorkItem` 0.18s later that double-checks `NSEvent.mouseLocation` against the window frame before actually collapsing. This absorbs phantom enter/exit events fired during `updateTrackingAreas` rebuilds.
+- The view is `isFlipped = true` (top-left origin). Image draws must use `respectFlipped: true` or the image renders upside down.
+- Each provider shows a near-limit warning glyph (amber triangle) and a fetch-error glyph (red circle, takes precedence). Expanded rows are clickable — a plain click opens the provider dashboard (`dashboardURL(for:)`), ⌘-click copies the stats line — with a hover highlight and trailing "open" glyph. The refresh button spins while a refresh is in flight. The whole panel exposes a live VoiceOver summary via `accessibilityLabel` (the footer buttons are not yet individually accessible).
 
-Claude Code does not use a user budget. It uses live provider limit windows returned by Anthropic.
+### Settings + budget-driven limits
 
-## Adding a new harness
+User settings live in `~/Library/Application Support/NotchTokens/config.json`, persisted via `SettingsStore` (an `ObservableObject` so the SwiftUI settings window binds directly to it). Codex and OpenCode budgets use a rolling 30-day $ window; `LocalUsageReader` sums their cost from the last 30 days and `UsageMonitor.refresh()` appends a synthetic `LimitWindow(name: "30d", usedPercent: rollingCost/budget * 100, resetsAt: nil)` for any provider with a budget. The UI bar/percent/caption code doesn't know or care that the window is synthetic — it renders the same way as Claude's real 5h/7d windows. Claude Code itself uses no user budget — only the live provider limit windows from Anthropic.
 
-Pattern: add a `ProviderKind` case, add a placeholder in `UsageSnapshot.placeholder`, add a `read<Name>()` method on `LocalUsageReader` or a separate service, add an asset in `Assets.xcassets/<name>.imageset`, then wire `drawProviderLogo`, the collapsed-segment list, and the expanded-row loop in `NotchUsagePanelView`. The expanded panel size and collapsed pill width may need to grow to fit more rows/segments.
+Settings also carry `alertThreshold` (default 80%) and `notificationsEnabled`: when a provider's peak limit window crosses the threshold, `UsageMonitor` posts a `UNUserNotification` once per crossing (re-armed when it drops back below). All new `Settings` fields must decode to a default for older configs (`decodeIfPresent` + fallback).
+
+The settings window itself is SwiftUI inside an `NSHostingController`-backed `NSWindow` (regular, focusable — not the `nonactivatingPanel` we use for the notch), opened from the gear button in the panel footer.
+
+### Adding a new harness
+
+Pattern: add a `ProviderKind` case → placeholder in `UsageSnapshot.placeholder` → a `read<Name>()` method on `LocalUsageReader` (or a separate service) that returns a `ProviderUsage` → an asset in `Assets.xcassets/<name>.imageset` → wire `drawProviderLogo`, the collapsed-segment list, and the expanded-row loop in `NotchUsagePanelView`. The expanded panel size and collapsed pill width may need to grow to fit additional rows/segments.

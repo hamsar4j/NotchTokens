@@ -31,8 +31,13 @@ final class NotchUsagePanelView: NSView {
     private var isExpanded = false
     private var isPinned = false
     private var buttonFrames: [ButtonKind: CGRect] = [:]
+    private var rowFrames: [ProviderKind: CGRect] = [:]
     private var hoveredButton: ButtonKind?
+    private var hoveredRow: ProviderKind?
     private var collapseWorkItem: DispatchWorkItem?
+    private var isRefreshing = false
+    private var refreshAngle: CGFloat = 0
+    private var refreshTimer: Timer?
 
     private static let collapsedSize = CGSize(width: 340, height: 68)
     private static let expandedSize = CGSize(width: 380, height: 292)
@@ -54,8 +59,15 @@ final class NotchUsagePanelView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
 
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+        setAccessibilityHelp("Shows AI coding-tool usage. Move the pointer over it to expand.")
+        updateAccessibility()
+
         monitor.onSnapshotChange = { [weak self] snapshot in
             self?.snapshot = snapshot
+            self?.updateAccessibility()
+            self?.stopRefreshAnimation()
             self?.needsDisplay = true
         }
     }
@@ -89,18 +101,28 @@ final class NotchUsagePanelView: NSView {
     override func mouseMoved(with event: NSEvent) {
         guard isExpanded else { return }
         let point = convert(event.locationInWindow, from: nil)
-        let newHover = buttonFrames.first(where: { $0.value.contains(point) })?.key
-        if newHover != hoveredButton {
-            hoveredButton = newHover
+        let newHoverButton = buttonFrames.first(where: { $0.value.contains(point) })?.key
+        let newHoverRow = newHoverButton == nil
+            ? rowFrames.first(where: { $0.value.contains(point) })?.key
+            : nil
+
+        if newHoverButton != nil || newHoverRow != nil {
+            NSCursor.pointingHand.set()
+        } else {
             NSCursor.arrow.set()
-            if newHover != nil { NSCursor.pointingHand.set() }
+        }
+
+        if newHoverButton != hoveredButton || newHoverRow != hoveredRow {
+            hoveredButton = newHoverButton
+            hoveredRow = newHoverRow
             needsDisplay = true
         }
     }
 
     override func mouseExited(with event: NSEvent) {
-        if hoveredButton != nil {
+        if hoveredButton != nil || hoveredRow != nil {
             hoveredButton = nil
+            hoveredRow = nil
             NSCursor.arrow.set()
             needsDisplay = true
         }
@@ -131,6 +153,10 @@ final class NotchUsagePanelView: NSView {
                 handleButton(kind)
                 return
             }
+            for (kind, frame) in rowFrames where frame.contains(point) {
+                handleRowClick(kind, copy: event.modifierFlags.contains(.command))
+                return
+            }
         }
 
         guard event.clickCount == 2 else { return }
@@ -142,6 +168,7 @@ final class NotchUsagePanelView: NSView {
         super.draw(dirtyRect)
 
         buttonFrames.removeAll()
+        rowFrames.removeAll()
         drawBackground()
 
         if isExpanded {
@@ -154,6 +181,10 @@ final class NotchUsagePanelView: NSView {
     private func setExpanded(_ expanded: Bool) {
         guard isExpanded != expanded else { return }
         isExpanded = expanded
+        if !expanded {
+            hoveredButton = nil
+            hoveredRow = nil
+        }
         onSizeChange(targetSize)
         needsDisplay = true
     }
@@ -166,6 +197,7 @@ final class NotchUsagePanelView: NSView {
     private func handleButton(_ kind: ButtonKind) {
         switch kind {
         case .refresh:
+            startRefreshAnimation()
             monitor.refresh()
         case .settings:
             onOpenSettings()
@@ -176,6 +208,66 @@ final class NotchUsagePanelView: NSView {
         case .quit:
             NSApp.terminate(nil)
         }
+    }
+
+    private func handleRowClick(_ kind: ProviderKind, copy: Bool) {
+        guard let provider = snapshot.providers.first(where: { $0.kind == kind }) else { return }
+        if copy {
+            copyStats(for: provider)
+        } else if let url = Self.dashboardURL(for: kind) {
+            NSWorkspace.shared.open(url)
+        } else {
+            copyStats(for: provider)
+        }
+    }
+
+    private func copyStats(for provider: ProviderUsage) {
+        var line = provider.title
+        if let percent = peakPercent(for: provider) {
+            line += " — \(Int(percent.rounded()))%"
+        }
+        if let caption = rowCaption(provider) {
+            line += " · \(caption)"
+        }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(line, forType: .string)
+    }
+
+    /// Best-effort landing page where each provider's usage can be reviewed. OpenCode is
+    /// local-only, so its rows fall back to copying stats.
+    private static func dashboardURL(for kind: ProviderKind) -> URL? {
+        switch kind {
+        case .claude: URL(string: "https://claude.ai/settings/usage")
+        case .codex: URL(string: "https://platform.openai.com/usage")
+        case .opencode: nil
+        }
+    }
+
+    private func startRefreshAnimation() {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        refreshTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            self?.refreshAngle += 0.28
+            self?.needsDisplay = true
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
+
+        // Safety net: never leave the spinner stuck if a refresh never republishes.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
+            self?.stopRefreshAnimation()
+        }
+    }
+
+    private func stopRefreshAnimation() {
+        guard isRefreshing else { return }
+        isRefreshing = false
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        refreshAngle = 0
+        needsDisplay = true
     }
 
     // MARK: - Drawing
@@ -247,9 +339,13 @@ final class NotchUsagePanelView: NSView {
             drawSymbol("questionmark", in: logoRect.insetBy(dx: 4, dy: 4), color: NSColor.white.withAlphaComponent(0.45))
         }
 
-        if hasData, let pct = percent, pct >= alertThreshold {
-            let badge: CGFloat = 11
-            drawWarningBadge(in: CGRect(x: logoRect.maxX - 6, y: logoRect.minY - 3, width: badge, height: badge))
+        if let provider, let badge = statusBadge(for: provider) {
+            let size: CGFloat = 11
+            drawSymbol(
+                badge.symbol,
+                in: CGRect(x: logoRect.maxX - 6, y: logoRect.minY - 3, width: size, height: size),
+                color: badge.color
+            )
         }
 
         let textWidth: CGFloat = 34
@@ -324,17 +420,34 @@ final class NotchUsagePanelView: NSView {
     }
 
     private func drawRow(_ provider: ProviderUsage, in rect: CGRect) {
+        rowFrames[provider.kind] = rect
+
+        // Hover highlight — signals the whole row is one clickable target.
+        if hoveredRow == provider.kind {
+            let highlight = CGRect(x: rect.minX - 6, y: rect.minY - 2, width: rect.width + 12, height: 64)
+            NSColor.white.withAlphaComponent(0.06).setFill()
+            roundedPath(highlight, radius: 9).fill()
+        }
+
         // Logo
         let logoRect = CGRect(x: rect.minX, y: rect.minY + 4, width: 32, height: 32)
         drawProviderLogo(provider, in: logoRect)
 
         // Title
+        let titleFont = NSFont.systemFont(ofSize: 13, weight: .semibold)
         drawText(
             provider.title,
             in: CGRect(x: rect.minX + 42, y: rect.minY + 4, width: 160, height: 16),
-            font: .systemFont(ofSize: 13, weight: .semibold),
+            font: titleFont,
             color: .white
         )
+
+        // On hover, an "opens externally" hint trailing the title (only when a row opens a URL).
+        if hoveredRow == provider.kind, Self.dashboardURL(for: provider.kind) != nil {
+            let titleWidth = (provider.title as NSString).size(withAttributes: [.font: titleFont]).width
+            let glyphRect = CGRect(x: rect.minX + 42 + titleWidth + 6, y: rect.minY + 6, width: 11, height: 11)
+            drawSymbol("arrow.up.forward", in: glyphRect, color: NSColor.white.withAlphaComponent(0.5))
+        }
 
         // Subtitle (limit label or token count)
         drawText(
@@ -358,8 +471,12 @@ final class NotchUsagePanelView: NSView {
             alignment: .right
         )
 
-        if isWarning(provider) {
-            drawWarningBadge(in: CGRect(x: rect.maxX - 78, y: rect.minY + 8, width: 13, height: 13))
+        if let badge = statusBadge(for: provider) {
+            drawSymbol(
+                badge.symbol,
+                in: CGRect(x: rect.maxX - 78, y: rect.minY + 8, width: 13, height: 13),
+                color: badge.color
+            )
         }
 
         // Bar
@@ -459,7 +576,8 @@ final class NotchUsagePanelView: NSView {
             path.stroke()
 
             let symbolName = kind == .pin && isPinned ? "pin.fill" : kind.symbolName
-            drawSymbol(symbolName, in: frame.insetBy(dx: 8, dy: 8), color: NSColor.white.withAlphaComponent(iconAlpha))
+            let rotation: CGFloat = (kind == .refresh && isRefreshing) ? refreshAngle : 0
+            drawSymbol(symbolName, in: frame.insetBy(dx: 8, dy: 8), color: NSColor.white.withAlphaComponent(iconAlpha), rotation: rotation)
 
             x -= (buttonSize + spacing)
         }
@@ -481,10 +599,47 @@ final class NotchUsagePanelView: NSView {
         return peak >= alertThreshold
     }
 
-    private static let warningColor = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.18, alpha: 1)
+    // MARK: - Accessibility
 
-    private func drawWarningBadge(in rect: CGRect) {
-        drawSymbol("exclamationmark.triangle.fill", in: rect, color: Self.warningColor)
+    private func updateAccessibility() {
+        let providers = snapshot.providers
+        guard !providers.isEmpty else {
+            setAccessibilityLabel("NotchTokens. No providers enabled.")
+            return
+        }
+        let parts = providers.map(accessibilityDescription)
+        setAccessibilityLabel("NotchTokens usage. " + parts.joined(separator: ". ") + ".")
+    }
+
+    private func accessibilityDescription(for provider: ProviderUsage) -> String {
+        switch provider.state {
+        case .missing: return "\(provider.title), not installed"
+        case .empty: return "\(provider.title), no usage yet"
+        case .failed(let message): return "\(provider.title), error, \(message)"
+        case .ready: break
+        }
+
+        guard let peak = peakPercent(for: provider) else {
+            return "\(provider.title), \(formatTokens(provider.totalTokens)) tokens"
+        }
+        let windowName = provider.limits.max(by: { $0.usedPercent < $1.usedPercent })?.name ?? "usage"
+        let warning = peak >= alertThreshold ? ", nearing limit" : ""
+        return "\(provider.title), \(Int(peak.rounded())) percent of \(windowName) limit\(warning)"
+    }
+
+    private static let warningColor = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.18, alpha: 1)
+    private static let errorColor = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 1)
+
+    /// The status badge (symbol + tint) to overlay for a provider, or nil when nothing
+    /// needs flagging. A fetch error takes precedence over the near-limit warning.
+    private func statusBadge(for provider: ProviderUsage) -> (symbol: String, color: NSColor)? {
+        if case .failed = provider.state {
+            return ("exclamationmark.circle.fill", Self.errorColor)
+        }
+        if isWarning(provider) {
+            return ("exclamationmark.triangle.fill", Self.warningColor)
+        }
+        return nil
     }
 
     private func rowSubtitle(_ provider: ProviderUsage) -> String {
@@ -568,7 +723,7 @@ final class NotchUsagePanelView: NSView {
 
     // MARK: - Drawing primitives
 
-    private func drawSymbol(_ name: String, in rect: CGRect, color: NSColor) {
+    private func drawSymbol(_ name: String, in rect: CGRect, color: NSColor, rotation: CGFloat = 0) {
         guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return }
         let configured = image.withSymbolConfiguration(
             NSImage.SymbolConfiguration(pointSize: rect.height, weight: .semibold)
@@ -584,6 +739,14 @@ final class NotchUsagePanelView: NSView {
         color.set()
         CGRect(origin: .zero, size: rect.size).fill(using: .sourceAtop)
         tinted.unlockFocus()
+
+        if rotation != 0 {
+            let transform = NSAffineTransform()
+            transform.translateX(by: rect.midX, yBy: rect.midY)
+            transform.rotate(byRadians: rotation)
+            transform.translateX(by: -rect.midX, yBy: -rect.midY)
+            transform.concat()
+        }
         tinted.draw(in: rect)
 
         NSGraphicsContext.restoreGraphicsState()

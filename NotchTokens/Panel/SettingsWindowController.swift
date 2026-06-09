@@ -123,13 +123,21 @@ private struct BudgetRow: View {
     let label: String
     @Binding var value: Double?
 
+    // Reject negative budgets — clamp anything below zero up to zero.
+    private var clamped: Binding<Double?> {
+        Binding(
+            get: { value },
+            set: { value = $0.map { Swift.max(0, $0) } }
+        )
+    }
+
     var body: some View {
         HStack {
             Text(label)
                 .frame(width: 90, alignment: .leading)
             TextField(
                 "No limit",
-                value: $value,
+                value: clamped,
                 format: .currency(code: "USD").precision(.fractionLength(0))
             )
             .textFieldStyle(.roundedBorder)

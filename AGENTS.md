@@ -78,6 +78,9 @@ Use the shared `Log` namespace (`Log.swift`): `Logger` instances under subsystem
 
 ### UI structure
 
+- **Two presentation modes**, chosen by `Settings.displayMode` (`auto`/`notch`/`menuBar`) and wired in `AppDelegate.applyMode`. `auto` resolves to the notch panel when the main display has a notch (`NSScreen.safeAreaInsets.top > 0`), else the menu-bar item. Changing the mode rebuilds the active controller.
+  - **Notch:** `NotchPanelController` + `NotchUsagePanelView` (hover-expanding pill).
+  - **Menu bar:** `MenuBarController` (`NSStatusItem` + `NSPopover`) reuses `NotchUsagePanelView` in `embedded` mode — always expanded, no hover-collapse, flat background, no pin button, and driven by the controller via `receive(_:)` (the controller also owns `monitor.onSnapshotChange` to update the status-item title).
 - `NotchPanelController` owns an `NSPanel` (`.borderless, .nonactivatingPanel, .fullSizeContentView`, level `.statusBar`, top-of-screen). The `.nonactivatingPanel` mask is load-bearing — without it the panel hides when the user clicks elsewhere.
 - `NotchUsagePanelView` is one `NSView` that draws everything by hand (no subviews). It has two layouts (collapsed pill / expanded panel) chosen at draw time by `isExpanded`. Hover expansion is animated via `NSAnimationContext` with a custom cubic-bezier curve; the `setFrameSize` override triggers continuous redraws during animation so the bars/text interpolate smoothly.
 - Hover flicker is suppressed by a debounced collapse: `mouseExited` schedules a `DispatchWorkItem` 0.18s later that double-checks `NSEvent.mouseLocation` against the window frame before actually collapsing. This absorbs phantom enter/exit events fired during `updateTrackingAreas` rebuilds.

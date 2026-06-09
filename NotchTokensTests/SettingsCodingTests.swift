@@ -4,6 +4,7 @@
 //
 
 import XCTest
+
 @testable import NotchTokens
 
 @MainActor
@@ -42,6 +43,14 @@ final class SettingsCodingTests: XCTestCase {
         let settings = try decode(#"{ "alertThreshold": 90, "notificationsEnabled": false }"#)
         XCTAssertEqual(settings.alertThreshold, 90)
         XCTAssertFalse(settings.notificationsEnabled)
+    }
+
+    func testMissingDisplayModeDefaultsToAuto() throws {
+        XCTAssertEqual(try decode("{}").displayMode, .auto)
+    }
+
+    func testDisplayModeDecodesWhenPresent() throws {
+        XCTAssertEqual(try decode(#"{ "displayMode": "menuBar" }"#).displayMode, .menuBar)
     }
 
     func testExtraUnknownKeysAreIgnored() throws {

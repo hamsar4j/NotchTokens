@@ -75,6 +75,19 @@ private struct SettingsView: View {
             )
             .toggleStyle(.checkbox)
 
+            HStack {
+                Text("Display")
+                    .frame(width: 90, alignment: .leading)
+                Picker("", selection: $store.settings.displayMode) {
+                    Text("Auto").tag(DisplayMode.auto)
+                    Text("Notch panel").tag(DisplayMode.notch)
+                    Text("Menu bar").tag(DisplayMode.menuBar)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Text("Rolling 30-Day Budgets")
                 .font(.headline)
                 .foregroundStyle(.secondary)

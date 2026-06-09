@@ -26,6 +26,9 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     private let monitor: UsageMonitor
     private let onSizeChange: (CGSize) -> Void
     private let onOpenSettings: () -> Void
+    /// When embedded in a popover (menu-bar mode) the view is always expanded, never
+    /// collapses on hover, and is driven externally rather than self-subscribing.
+    private let embedded: Bool
     private var trackingArea: NSTrackingArea?
     private var snapshot: UsageSnapshot
     private var isExpanded = false
@@ -50,28 +53,46 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
 
     override var isFlipped: Bool { true }
 
-    init(monitor: UsageMonitor, onSizeChange: @escaping (CGSize) -> Void, onOpenSettings: @escaping () -> Void) {
+    init(
+        monitor: UsageMonitor,
+        embedded: Bool = false,
+        onSizeChange: @escaping (CGSize) -> Void,
+        onOpenSettings: @escaping () -> Void
+    ) {
         self.monitor = monitor
+        self.embedded = embedded
         self.onSizeChange = onSizeChange
         self.onOpenSettings = onOpenSettings
         self.snapshot = monitor.snapshot
+        self.isExpanded = embedded
 
-        super.init(frame: CGRect(origin: .zero, size: Self.collapsedSize))
+        let startSize = embedded ? Self.expandedSize : Self.collapsedSize
+        super.init(frame: CGRect(origin: .zero, size: startSize))
 
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
 
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
-        setAccessibilityHelp("Shows AI coding-tool usage. Move the pointer over it to expand.")
+        setAccessibilityHelp("Shows AI coding-tool usage.")
         updateAccessibility()
 
-        monitor.onSnapshotChange = { [weak self] snapshot in
-            self?.snapshot = snapshot
-            self?.updateAccessibility()
-            self?.stopRefreshAnimation()
-            self?.needsDisplay = true
+        // In menu-bar mode the owning controller drives updates (it also needs the snapshot
+        // for the status-item title); in notch mode the view subscribes directly.
+        if !embedded {
+            monitor.onSnapshotChange = { [weak self] snapshot in
+                self?.receive(snapshot)
+            }
         }
+    }
+
+    /// Apply a new snapshot and redraw. Used by the self-subscription (notch mode) and by
+    /// the menu-bar controller (embedded mode).
+    func receive(_ snapshot: UsageSnapshot) {
+        self.snapshot = snapshot
+        updateAccessibility()
+        stopRefreshAnimation()
+        needsDisplay = true
     }
 
     @available(*, unavailable)
@@ -94,6 +115,7 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     }
 
     override func mouseEntered(with event: NSEvent) {
+        guard !embedded else { return }
         collapseWorkItem?.cancel()
         collapseWorkItem = nil
         guard !isPinned else { return }
@@ -129,7 +151,7 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
             NSCursor.arrow.set()
             needsDisplay = true
         }
-        guard !isPinned else { return }
+        guard !embedded, !isPinned else { return }
         collapseWorkItem?.cancel()
 
         let work = DispatchWorkItem { [weak self] in
@@ -162,7 +184,8 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
             }
         }
 
-        guard event.clickCount == 2 else { return }
+        // Double-click to pin only applies to the notch panel.
+        guard !embedded, event.clickCount == 2 else { return }
         isPinned.toggle()
         setExpanded(true)
     }
@@ -182,6 +205,7 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     }
 
     private func setExpanded(_ expanded: Bool) {
+        guard !embedded else { return }
         guard isExpanded != expanded else { return }
         isExpanded = expanded
         if !expanded {
@@ -287,6 +311,13 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     // MARK: - Drawing
 
     private func drawBackground() {
+        // Embedded in a popover: fill flat (the popover supplies the shape and arrow).
+        guard !embedded else {
+            NSColor(calibratedWhite: 0.04, alpha: 1.0).setFill()
+            bounds.fill()
+            return
+        }
+
         let radius: CGFloat = isExpanded ? 22 : 16
         let path = bottomRoundedPath(in: bounds, radius: radius)
 
@@ -601,7 +632,9 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
         let spacing: CGFloat = 6
         var x = bounds.width - 16 - buttonSize
 
-        for kind in ButtonKind.allCases.reversed() {
+        // Pinning is a notch-panel concept; the popover manages its own dismissal.
+        let buttons = embedded ? [ButtonKind.refresh, .settings, .quit] : ButtonKind.allCases
+        for kind in buttons.reversed() {
             let frame = CGRect(x: x, y: bounds.height - buttonSize - 8, width: buttonSize, height: buttonSize)
             buttonFrames[kind] = frame
 

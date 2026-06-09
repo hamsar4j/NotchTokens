@@ -53,6 +53,10 @@ final class NotchPanelController {
         panel.orderFrontRegardless()
     }
 
+    func close() {
+        panel.orderOut(nil)
+    }
+
     private func resize(to size: CGSize, animated: Bool = true) {
         currentSize = size
 

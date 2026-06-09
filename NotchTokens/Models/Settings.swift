@@ -5,6 +5,14 @@
 
 import Foundation
 
+/// How the usage UI is presented. `.auto` picks the notch panel on Macs with a notch,
+/// otherwise the menu-bar item.
+nonisolated enum DisplayMode: String, Codable, Sendable, CaseIterable {
+    case auto
+    case notch
+    case menuBar
+}
+
 nonisolated struct Settings: Codable, Equatable, Sendable {
     /// Default usage percentage at which a provider is flagged as nearing its limit.
     static let defaultAlertThreshold: Double = 80
@@ -18,6 +26,8 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
     var alertThreshold: Double
     /// Whether to post a system notification when a provider crosses `alertThreshold`.
     var notificationsEnabled: Bool
+    /// Notch panel vs menu-bar item (or auto-detect).
+    var displayMode: DisplayMode
 
     static let `default` = Settings(
         codexBudget: nil,
@@ -34,7 +44,8 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
         showCodex: Bool = true,
         showOpenCode: Bool = true,
         alertThreshold: Double = Settings.defaultAlertThreshold,
-        notificationsEnabled: Bool = true
+        notificationsEnabled: Bool = true,
+        displayMode: DisplayMode = .auto
     ) {
         self.codexBudget = codexBudget
         self.opencodeBudget = opencodeBudget
@@ -43,6 +54,7 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
         self.showOpenCode = showOpenCode
         self.alertThreshold = alertThreshold
         self.notificationsEnabled = notificationsEnabled
+        self.displayMode = displayMode
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -53,6 +65,7 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
         case showOpenCode
         case alertThreshold
         case notificationsEnabled
+        case displayMode
     }
 
     init(from decoder: Decoder) throws {
@@ -66,6 +79,7 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
             try container.decodeIfPresent(Double.self, forKey: .alertThreshold)
             ?? Settings.defaultAlertThreshold
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
+        displayMode = try container.decodeIfPresent(DisplayMode.self, forKey: .displayMode) ?? .auto
     }
 
     func budget(for kind: ProviderKind) -> Double? {

@@ -14,9 +14,11 @@ nonisolated struct LocalUsageReader {
     private let fileManager = FileManager.default
     private let calendar = Calendar.current
     private let pricing: PricingTable
+    private let baseDirectory: URL
 
-    init(pricing: PricingTable = .empty) {
+    init(pricing: PricingTable = .empty, baseDirectory: URL? = nil) {
         self.pricing = pricing
+        self.baseDirectory = baseDirectory ?? FileManager.default.homeDirectoryForCurrentUser
     }
 
     func readSnapshot() -> UsageSnapshot {
@@ -359,7 +361,7 @@ nonisolated struct LocalUsageReader {
     }
 
     private var home: URL {
-        fileManager.homeDirectoryForCurrentUser
+        baseDirectory
     }
 
     private func jsonlFiles(under root: URL) -> [URL] {

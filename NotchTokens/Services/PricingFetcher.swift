@@ -11,6 +11,8 @@ actor PricingFetcher {
 
     private var table: PricingTable
     private var lastFetch: Date?
+    private var failureCount = 0
+    private var nextAllowedAttempt: Date?
 
     init() {
         if let cached = Self.loadDiskCache(), let decoded = PricingTable.decode(cached.data) {
@@ -36,6 +38,11 @@ actor PricingFetcher {
             return
         }
 
+        // Back off after failures so we don't hammer GitHub every refresh tick.
+        if let next = nextAllowedAttempt, next > Date() {
+            return
+        }
+
         var request = URLRequest(url: Self.remoteURL, timeoutInterval: 10)
         request.addValue("application/json", forHTTPHeaderField: "Accept")
 
@@ -46,15 +53,25 @@ actor PricingFetcher {
                 (200..<300).contains(http.statusCode),
                 let decoded = PricingTable.decode(data)
             else {
+                recordFailure()
                 return
             }
 
             table = decoded
             lastFetch = Date()
+            failureCount = 0
+            nextAllowedAttempt = nil
             Self.saveDiskCache(data)
         } catch {
             // keep existing table on failure
+            recordFailure()
         }
+    }
+
+    private func recordFailure() {
+        failureCount += 1
+        let delay = min(600, 60 * pow(2.0, Double(failureCount - 1)))
+        nextAllowedAttempt = Date().addingTimeInterval(delay)
     }
 
     // MARK: - Disk cache

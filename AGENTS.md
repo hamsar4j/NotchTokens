@@ -60,6 +60,8 @@ UsageMonitor (timer, 60s)
 
 `LocalUsageReader` takes an optional `baseDirectory` (defaults to the home dir) so it can be pointed at fixture directories in tests. Per-file reads skip anything over 50 MB (`boundedData`) to avoid materializing a pathological multi-GB JSONL into memory.
 
+In the same pass, each `ProviderUsage` also gets `yesterdayCost`/`yesterdayTokens` (yesterday *up to the current time of day*, via `isYesterdaySoFar`, for the today-vs-yesterday trend arrow — no persistence) and `models: [ModelUsage]` (per-model spend, highest first; OpenCode keys by `providerID/modelID`).
+
 ### Pricing
 
 `PricingFetcher` (actor) loads a `PricingTable` decoded from LiteLLM's `model_prices_and_context_window.json` (~1.4 MB). Sources are tried in this order:
@@ -74,7 +76,7 @@ OpenCode does **not** consult this table — it has its own pre-computed `cost` 
 
 ### Logging
 
-Use the shared `Log` namespace (`Log.swift`): `Logger` instances under subsystem `com.NotchTokens.NotchTokens` with categories `Pricing`, `ClaudeUsage`, `Credentials`. Prefer `os.Logger` over `print`. View with `log stream --predicate 'subsystem == "com.NotchTokens.NotchTokens"'`. Never log token/keychain contents.
+Use the shared `Log` namespace (`Log.swift`): `Logger` instances under subsystem `com.NotchTokens.NotchTokens` with categories `App`, `Pricing`, `ClaudeUsage`, `Credentials`. Prefer `os.Logger` over `print`. View with `log stream --predicate 'subsystem == "com.NotchTokens.NotchTokens"'`. Never log token/keychain contents.
 
 ### UI structure
 
@@ -85,13 +87,13 @@ Use the shared `Log` namespace (`Log.swift`): `Logger` instances under subsystem
 - `NotchUsagePanelView` is one `NSView` that draws everything by hand (no subviews). It has two layouts (collapsed pill / expanded panel) chosen at draw time by `isExpanded`. Hover expansion is animated via `NSAnimationContext` with a custom cubic-bezier curve; the `setFrameSize` override triggers continuous redraws during animation so the bars/text interpolate smoothly.
 - Hover flicker is suppressed by a debounced collapse: `mouseExited` schedules a `DispatchWorkItem` 0.18s later that double-checks `NSEvent.mouseLocation` against the window frame before actually collapsing. This absorbs phantom enter/exit events fired during `updateTrackingAreas` rebuilds.
 - The view is `isFlipped = true` (top-left origin). Image draws must use `respectFlipped: true` or the image renders upside down.
-- Each provider shows a near-limit warning glyph (amber triangle) and a fetch-error glyph (red circle, takes precedence). Expanded rows are clickable — a plain click opens the provider dashboard (`dashboardURL(for:)`), ⌘-click copies the stats line — with a hover highlight and trailing "open" glyph. The refresh button spins while a refresh is in flight. The whole panel exposes a live VoiceOver summary via `accessibilityLabel` (the footer buttons are not yet individually accessible).
+- Each provider shows a near-limit warning glyph (amber triangle) and a fetch-error glyph (red circle, takes precedence). Expanded rows are clickable — a plain click opens the provider dashboard (`dashboardURL(for:)`), ⌘-click copies the stats line — with a hover highlight and trailing "open" glyph; a per-row tooltip lists the per-model breakdown. The expanded header shows combined `$X today` with a today-vs-yesterday trend arrow (up red / down green). The refresh button spins while a refresh is in flight. The whole panel exposes a live VoiceOver summary via `accessibilityLabel` (the footer buttons are not yet individually accessible).
 
 ### Settings + budget-driven limits
 
 User settings live in `~/Library/Application Support/NotchTokens/config.json`, persisted via `SettingsStore` (an `ObservableObject` so the SwiftUI settings window binds directly to it). Codex and OpenCode budgets use a rolling 30-day $ window; `LocalUsageReader` sums their cost from the last 30 days and `UsageMonitor.refresh()` appends a synthetic `LimitWindow(name: "30d", usedPercent: rollingCost/budget * 100, resetsAt: nil)` for any provider with a budget. The UI bar/percent/caption code doesn't know or care that the window is synthetic — it renders the same way as Claude's real 5h/7d windows. Claude Code itself uses no user budget — only the live provider limit windows from Anthropic.
 
-Settings also carry `alertThreshold` (default 80%) and `notificationsEnabled`: when a provider's peak limit window crosses the threshold, `UsageMonitor` posts a `UNUserNotification` once per crossing (re-armed when it drops back below). All new `Settings` fields must decode to a default for older configs (`decodeIfPresent` + fallback).
+Settings also carry `alertThreshold` (default 80%) and `notificationsEnabled`: when a provider's peak limit window crosses the threshold, `UsageMonitor` posts a `UNUserNotification` once per crossing (re-armed when it drops back below). `displayMode` (`auto`/`notch`/`menuBar`) selects the presentation. Launch-at-login is a system toggle via `LoginItem` (`SMAppService.mainApp`), not stored in `config.json`. All new `Settings` fields must decode to a default for older configs (`decodeIfPresent` + fallback).
 
 The settings window itself is SwiftUI inside an `NSHostingController`-backed `NSWindow` (regular, focusable — not the `nonactivatingPanel` we use for the notch), opened from the gear button in the panel footer.
 

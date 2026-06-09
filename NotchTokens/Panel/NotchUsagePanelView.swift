@@ -43,6 +43,8 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     private var refreshTimer: Timer?
     private var toolTips: [NSView.ToolTipTag: String] = [:]
     private var toolTipSignature = ""
+    private var displayedPercent: [ProviderKind: Double] = [:]
+    private var barTimer: Timer?
 
     private static let collapsedSize = CGSize(width: 340, height: 68)
     private static let expandedSize = CGSize(width: 380, height: 292)
@@ -92,6 +94,13 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
         self.snapshot = snapshot
         updateAccessibility()
         stopRefreshAnimation()
+        // Snap a provider's bar on first appearance (no 0→X sweep on launch); ease thereafter.
+        for provider in snapshot.providers where displayedPercent[provider.kind] == nil {
+            if let target = peakPercent(for: provider) {
+                displayedPercent[provider.kind] = target
+            }
+        }
+        startBarAnimationIfNeeded()
         needsDisplay = true
     }
 
@@ -359,7 +368,7 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
                 barY: barY,
                 barHeight: barHeight,
                 provider: provider,
-                percent: peakPercent(for: provider),
+                percent: displayPercent(for: provider),
                 hasData: provider.state == .ready
             )
         }
@@ -532,8 +541,8 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
             color: NSColor.white.withAlphaComponent(0.52)
         )
 
-        // Percent label (right side)
-        let percent = peakPercent(for: provider)
+        // Percent label (right side) — eased value so bar, colour and number move together.
+        let percent = displayPercent(for: provider)
         let percentText: String = {
             if let p = percent { return "\(Int(p.rounded()))%" }
             return "--"
@@ -667,6 +676,67 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     private func peakPercent(for provider: ProviderUsage?) -> Double? {
         guard let provider, !provider.limits.isEmpty else { return nil }
         return provider.limits.map(\.usedPercent).max()
+    }
+
+    // MARK: - Bar value animation
+
+    /// The eased value the bar/label/colour should currently render (vs `peakPercent`, the target).
+    private func displayPercent(for provider: ProviderUsage) -> Double? {
+        guard let target = peakPercent(for: provider) else { return nil }
+        return displayedPercent[provider.kind] ?? target
+    }
+
+    private func startBarAnimationIfNeeded() {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            snapBars()
+            return
+        }
+        guard barTimer == nil, barsAreMoving else { return }
+        let timer = Timer(
+            timeInterval: 1.0 / 60.0,
+            target: self,
+            selector: #selector(advanceBars),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.main.add(timer, forMode: .common)
+        barTimer = timer
+    }
+
+    private var barsAreMoving: Bool {
+        snapshot.providers.contains { provider in
+            guard let target = peakPercent(for: provider), let current = displayedPercent[provider.kind]
+            else { return false }
+            return abs(target - current) > 0.1
+        }
+    }
+
+    private func snapBars() {
+        for provider in snapshot.providers {
+            if let target = peakPercent(for: provider) { displayedPercent[provider.kind] = target }
+        }
+        needsDisplay = true
+    }
+
+    @objc private func advanceBars() {
+        var moving = false
+        for provider in snapshot.providers {
+            guard let target = peakPercent(for: provider) else { continue }
+            let current = displayedPercent[provider.kind] ?? target
+            if abs(target - current) > 0.1 {
+                displayedPercent[provider.kind] = current + (target - current) * 0.25
+                moving = true
+            } else {
+                displayedPercent[provider.kind] = target
+            }
+        }
+        needsDisplay = true
+        if !moving { stopBarAnimation() }
+    }
+
+    private func stopBarAnimation() {
+        barTimer?.invalidate()
+        barTimer = nil
     }
 
     private var alertThreshold: Double {

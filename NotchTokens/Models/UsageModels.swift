@@ -49,6 +49,11 @@ nonisolated struct ProviderUsage {
     var todayCost: Double
     var costWindowCost: Double
     var costWindowLabel: String = "this month"
+    /// Cost incurred yesterday up to the current time of day, for the today-vs-yesterday trend.
+    var yesterdayCost: Double = 0
+    var yesterdayTokens: Int64 = 0
+    /// Per-model spend within this provider, highest cost first.
+    var models: [ModelUsage] = []
 
     static func placeholder(kind: ProviderKind, title: String) -> ProviderUsage {
         ProviderUsage(
@@ -65,6 +70,12 @@ nonisolated struct ProviderUsage {
             costWindowLabel: "this month"
         )
     }
+}
+
+nonisolated struct ModelUsage: Equatable {
+    let name: String
+    let tokens: Int64
+    let cost: Double
 }
 
 nonisolated struct LimitWindow: Equatable {

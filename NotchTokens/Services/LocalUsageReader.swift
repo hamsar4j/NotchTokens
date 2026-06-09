@@ -41,7 +41,10 @@ nonisolated struct LocalUsageReader {
         var lastActivity: Date?
         var cost: Double = 0
         var todayCost: Double = 0
+        var yesterdayTotal: Int64 = 0
+        var yesterdayCost: Double = 0
         var monthCost: Double = 0
+        var modelAcc: [String: (tokens: Int64, cost: Double)] = [:]
 
         for file in jsonlFiles(under: projectsRoot) {
             forEachJSONLine(in: file) { object in
@@ -90,12 +93,17 @@ nonisolated struct LocalUsageReader {
                         cacheWrite1h: cacheWrite1h
                     ) ?? 0
                 cost += recordCost
+                modelAcc[modelName, default: (0, 0)].tokens += recordTotal
+                modelAcc[modelName, default: (0, 0)].cost += recordCost
 
                 if let timestamp = parseDate(object["timestamp"] as? String) {
                     lastActivity = maxDate(lastActivity, timestamp)
                     if calendar.isDateInToday(timestamp) {
                         todayTotal += recordTotal
                         todayCost += recordCost
+                    } else if isYesterdaySoFar(timestamp) {
+                        yesterdayTotal += recordTotal
+                        yesterdayCost += recordCost
                     }
                     if isInCurrentMonth(timestamp) {
                         monthCost += recordCost
@@ -121,7 +129,10 @@ nonisolated struct LocalUsageReader {
             limits: [],
             cost: cost,
             todayCost: todayCost,
-            costWindowCost: monthCost
+            costWindowCost: monthCost,
+            yesterdayCost: yesterdayCost,
+            yesterdayTokens: yesterdayTotal,
+            models: sortedModels(modelAcc)
         )
     }
 
@@ -148,7 +159,10 @@ nonisolated struct LocalUsageReader {
         var latestLimits: [LimitWindow] = []
         var cost: Double = 0
         var todayCost: Double = 0
+        var yesterdayTotal: Int64 = 0
+        var yesterdayCost: Double = 0
         var rollingThirtyDayCost: Double = 0
+        var modelAcc: [String: (tokens: Int64, cost: Double)] = [:]
 
         for root in roots {
             for file in jsonlFiles(under: root) {
@@ -217,10 +231,16 @@ nonisolated struct LocalUsageReader {
                         cacheWrite1h: 0
                     ) ?? 0
                 cost += sessionCost
+                let modelKey = sessionModel ?? configuredModel ?? "unknown"
+                modelAcc[modelKey, default: (0, 0)].tokens += sessionTotal
+                modelAcc[modelKey, default: (0, 0)].cost += sessionCost
 
                 if let sessionLastActivity, calendar.isDateInToday(sessionLastActivity) {
                     todayTotal += sessionTotal
                     todayCost += sessionCost
+                } else if let sessionLastActivity, isYesterdaySoFar(sessionLastActivity) {
+                    yesterdayTotal += sessionTotal
+                    yesterdayCost += sessionCost
                 }
                 if let sessionLastActivity, isInRollingThirtyDays(sessionLastActivity) {
                     rollingThirtyDayCost += sessionCost
@@ -239,7 +259,10 @@ nonisolated struct LocalUsageReader {
             cost: cost,
             todayCost: todayCost,
             costWindowCost: rollingThirtyDayCost,
-            costWindowLabel: "last 30d"
+            costWindowLabel: "last 30d",
+            yesterdayCost: yesterdayCost,
+            yesterdayTokens: yesterdayTotal,
+            models: sortedModels(modelAcc)
         )
     }
 
@@ -258,8 +281,11 @@ nonisolated struct LocalUsageReader {
         var todayTotal: Int64 = 0
         var cost: Double = 0
         var todayCost: Double = 0
+        var yesterdayTotal: Int64 = 0
+        var yesterdayCost: Double = 0
         var rollingThirtyDayCost: Double = 0
         var lastActivity: Date?
+        var modelAcc: [String: (tokens: Int64, cost: Double)] = [:]
 
         guard
             let enumerator = fileManager.enumerator(
@@ -299,12 +325,21 @@ nonisolated struct LocalUsageReader {
             let messageCost = double(object["cost"])
             cost += messageCost
 
+            if let modelID = object["modelID"] as? String {
+                let key = (object["providerID"] as? String).map { "\($0)/\(modelID)" } ?? modelID
+                modelAcc[key, default: (0, 0)].tokens += messageTotal
+                modelAcc[key, default: (0, 0)].cost += messageCost
+            }
+
             let timestamp = parseOpenCodeTime(object["time"])
             if let timestamp {
                 lastActivity = maxDate(lastActivity, timestamp)
                 if calendar.isDateInToday(timestamp) {
                     todayTotal += messageTotal
                     todayCost += messageCost
+                } else if isYesterdaySoFar(timestamp) {
+                    yesterdayTotal += messageTotal
+                    yesterdayCost += messageCost
                 }
                 if isInRollingThirtyDays(timestamp) {
                     rollingThirtyDayCost += messageCost
@@ -323,7 +358,10 @@ nonisolated struct LocalUsageReader {
             cost: cost,
             todayCost: todayCost,
             costWindowCost: rollingThirtyDayCost,
-            costWindowLabel: "last 30d"
+            costWindowLabel: "last 30d",
+            yesterdayCost: yesterdayCost,
+            yesterdayTokens: yesterdayTotal,
+            models: sortedModels(modelAcc)
         )
     }
 
@@ -337,6 +375,18 @@ nonisolated struct LocalUsageReader {
         let now = Date()
         let start = now.addingTimeInterval(-Self.rollingThirtyDayInterval)
         return date >= start && date <= now
+    }
+
+    /// Yesterday, but only up to the current time of day, so "today so far" compares
+    /// against the same slice of yesterday rather than a full (larger) day.
+    private func isYesterdaySoFar(_ date: Date) -> Bool {
+        calendar.isDateInYesterday(date) && date <= Date().addingTimeInterval(-86_400)
+    }
+
+    private func sortedModels(_ acc: [String: (tokens: Int64, cost: Double)]) -> [ModelUsage] {
+        acc
+            .map { ModelUsage(name: $0.key, tokens: $0.value.tokens, cost: $0.value.cost) }
+            .sorted { $0.cost != $1.cost ? $0.cost > $1.cost : $0.tokens > $1.tokens }
     }
 
     private func readCodexConfigModel(at file: URL) -> String? {

@@ -59,9 +59,22 @@ final class SettingsWindowController {
 private struct SettingsView: View {
     @ObservedObject var store: SettingsStore
     let onDone: () -> Void
+    @State private var launchAtLogin = LoginItem.isEnabled
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            Toggle(
+                "Launch at login",
+                isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { newValue in
+                        launchAtLogin = newValue
+                        LoginItem.setEnabled(newValue)
+                    }
+                )
+            )
+            .toggleStyle(.checkbox)
+
             Text("Rolling 30-Day Budgets")
                 .font(.headline)
                 .foregroundStyle(.secondary)

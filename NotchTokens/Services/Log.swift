@@ -11,6 +11,7 @@ import OSLog
 nonisolated enum Log {
     private static let subsystem = "com.NotchTokens.NotchTokens"
 
+    static let app = Logger(subsystem: subsystem, category: "App")
     static let pricing = Logger(subsystem: subsystem, category: "Pricing")
     static let claudeUsage = Logger(subsystem: subsystem, category: "ClaudeUsage")
     static let credentials = Logger(subsystem: subsystem, category: "Credentials")

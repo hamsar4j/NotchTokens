@@ -6,7 +6,7 @@
 import AppKit
 
 @MainActor
-final class NotchUsagePanelView: NSView {
+final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     private enum ButtonKind: CaseIterable {
         case refresh
         case settings
@@ -38,6 +38,8 @@ final class NotchUsagePanelView: NSView {
     private var isRefreshing = false
     private var refreshAngle: CGFloat = 0
     private var refreshTimer: Timer?
+    private var toolTips: [NSView.ToolTipTag: String] = [:]
+    private var toolTipSignature = ""
 
     private static let collapsedSize = CGSize(width: 340, height: 68)
     private static let expandedSize = CGSize(width: 380, height: 292)
@@ -185,6 +187,9 @@ final class NotchUsagePanelView: NSView {
         if !expanded {
             hoveredButton = nil
             hoveredRow = nil
+            removeAllToolTips()
+            toolTips.removeAll()
+            toolTipSignature = ""
         }
         onSizeChange(targetSize)
         needsDisplay = true
@@ -395,6 +400,7 @@ final class NotchUsagePanelView: NSView {
                 color: NSColor.white.withAlphaComponent(0.52),
                 alignment: .center
             )
+            updateToolTips()
             drawFooter()
             return
         }
@@ -410,16 +416,41 @@ final class NotchUsagePanelView: NSView {
             }
         }
 
+        updateToolTips()
         drawFooter()
     }
 
     private func drawHeader() {
         drawText(
             "NotchTokens",
-            in: CGRect(x: 16, y: 12, width: 120, height: 14),
+            in: CGRect(x: 16, y: 12, width: 90, height: 14),
             font: .systemFont(ofSize: 11, weight: .semibold),
             color: NSColor.white.withAlphaComponent(0.7)
         )
+
+        // Combined spend across visible providers — the at-a-glance "what have I spent today".
+        let todayTotal = snapshot.providers.reduce(0.0) { $0 + $1.todayCost }
+        let yesterdayTotal = snapshot.providers.reduce(0.0) { $0 + $1.yesterdayCost }
+        if todayTotal > 0 {
+            let todayText = "\(formatCost(todayTotal)) today"
+            let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+            drawText(
+                todayText,
+                in: CGRect(x: 108, y: 12, width: 108, height: 14),
+                font: font,
+                color: NSColor.white.withAlphaComponent(0.85)
+            )
+
+            // Trend vs the same slice of yesterday: up (red) = spending more, down (green) = less.
+            if let trend = trendGlyph(today: todayTotal, yesterday: yesterdayTotal) {
+                let textWidth = min(104, (todayText as NSString).size(withAttributes: [.font: font]).width)
+                drawSymbol(
+                    trend.symbol,
+                    in: CGRect(x: 108 + textWidth + 4, y: 13, width: 10, height: 10),
+                    color: trend.color
+                )
+            }
+        }
 
         if let activity = activityText {
             drawText(
@@ -642,8 +673,67 @@ final class NotchUsagePanelView: NSView {
         return "\(provider.title), \(Int(peak.rounded())) percent of \(windowName) limit\(warning)"
     }
 
+    // MARK: - Per-model tooltips
+
+    /// Registers a per-row tooltip listing model spend. Only runs once the panel has
+    /// settled at full size, and re-registers only when the content changes — so the
+    /// 30fps refresh spinner doesn't churn tooltips every frame.
+    private func updateToolTips() {
+        guard isExpanded, bounds.size == Self.expandedSize else { return }
+
+        let entries: [(rect: CGRect, text: String)] = snapshot.providers.compactMap { provider in
+            guard let rect = rowFrames[provider.kind], let text = modelBreakdownText(provider) else { return nil }
+            return (rect, text)
+        }
+
+        let signature = entries.map(\.text).joined(separator: "|")
+        guard signature != toolTipSignature else { return }
+        toolTipSignature = signature
+
+        removeAllToolTips()
+        toolTips.removeAll()
+        for entry in entries {
+            let tag = addToolTip(entry.rect, owner: self, userData: nil)
+            toolTips[tag] = entry.text
+        }
+    }
+
+    private func modelBreakdownText(_ provider: ProviderUsage) -> String? {
+        guard provider.state == .ready, !provider.models.isEmpty else { return nil }
+        return provider.models
+            .prefix(6)
+            .map { "\(displayModelName($0.name))   \(formatCost($0.cost))" }
+            .joined(separator: "\n")
+    }
+
+    private func displayModelName(_ raw: String) -> String {
+        // Drop a leading vendor segment: "togetherai/Qwen/…" -> "Qwen/…", "openai/gpt-5" ->
+        // "gpt-5". Short ids like "claude-sonnet-4-5" have no slash and pass through.
+        let parts = raw.split(separator: "/")
+        return parts.count >= 2 ? parts.dropFirst().joined(separator: "/") : raw
+    }
+
+    func view(
+        _ view: NSView,
+        stringForToolTip tag: NSView.ToolTipTag,
+        point: NSPoint,
+        userData data: UnsafeMutableRawPointer?
+    ) -> String {
+        toolTips[tag] ?? ""
+    }
+
     private static let warningColor = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.18, alpha: 1)
     private static let errorColor = NSColor(calibratedRed: 0.95, green: 0.42, blue: 0.42, alpha: 1)
+    private static let positiveColor = NSColor(calibratedRed: 0.34, green: 0.86, blue: 0.58, alpha: 1)
+
+    /// Today-vs-yesterday spend arrow, or nil when roughly flat (within 5%).
+    private func trendGlyph(today: Double, yesterday: Double) -> (symbol: String, color: NSColor)? {
+        guard yesterday > 0 else { return nil }
+        let ratio = today / yesterday
+        if ratio >= 1.05 { return ("arrow.up", Self.errorColor) }
+        if ratio <= 0.95 { return ("arrow.down", Self.positiveColor) }
+        return nil
+    }
 
     /// The status badge (symbol + tint) to overlay for a provider, or nil when nothing
     /// needs flagging. A fetch error takes precedence over the near-limit warning.

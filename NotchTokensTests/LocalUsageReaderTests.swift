@@ -55,10 +55,28 @@ final class LocalUsageReaderTests: XCTestCase {
         return PricingTable.decode(Data(json.utf8)) ?? .empty
     }
 
-    private func claudeRecord(requestId: String, messageId: String, input: Int, output: Int) -> String {
+    private func claudeRecord(
+        requestId: String,
+        messageId: String,
+        input: Int,
+        output: Int,
+        model: String = "claude-sonnet-4-5",
+        timestamp: String = "2026-01-02T10:00:00Z"
+    ) -> String {
         """
-        {"requestId":"\(requestId)","timestamp":"2026-01-02T10:00:00Z","message":{"id":"\(messageId)","model":"claude-sonnet-4-5","usage":{"input_tokens":\(input),"output_tokens":\(output),"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+        {"requestId":"\(requestId)","timestamp":"\(timestamp)","message":{"id":"\(messageId)","model":"\(model)","usage":{"input_tokens":\(input),"output_tokens":\(output),"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
         """
+    }
+
+    private func iso(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: date)
+    }
+
+    /// Yesterday at ~00:05 — reliably "yesterday so far" regardless of when the test runs.
+    private func yesterdayEarly() -> Date {
+        Calendar.current.startOfDay(for: Date()).addingTimeInterval(-24 * 3600 + 300)
     }
 
     // MARK: - Claude
@@ -99,6 +117,28 @@ final class LocalUsageReaderTests: XCTestCase {
         try write("not json\n\(good)\n{\"partial\":true}\n", to: ".claude/projects/proj1/session.jsonl")
 
         XCTAssertEqual(try provider(.claude).totalTokens, 150)
+    }
+
+    func testClaudeYesterdaySoFarCost() throws {
+        let line = claudeRecord(
+            requestId: "r", messageId: "m", input: 1000, output: 500, timestamp: iso(yesterdayEarly())
+        )
+        try write("\(line)\n", to: ".claude/projects/proj1/session.jsonl")
+
+        let claude = try provider(.claude, pricing: Self.pricingTable())
+        XCTAssertEqual(claude.yesterdayCost, 0.0105, accuracy: 1e-9)
+        XCTAssertEqual(claude.todayCost, 0, accuracy: 1e-12)
+    }
+
+    func testClaudePerModelBreakdownSortedByCost() throws {
+        // sonnet: 1000 * 3e-6 = 0.003 ; gpt-5: 2000 * 1.25e-6 = 0.0025 — sonnet ranks first.
+        let a = claudeRecord(requestId: "r1", messageId: "m1", input: 1000, output: 0, model: "claude-sonnet-4-5")
+        let b = claudeRecord(requestId: "r2", messageId: "m2", input: 2000, output: 0, model: "gpt-5")
+        try write("\(a)\n\(b)\n", to: ".claude/projects/proj1/session.jsonl")
+
+        let models = try provider(.claude, pricing: Self.pricingTable()).models
+        XCTAssertEqual(models.map(\.name), ["claude-sonnet-4-5", "gpt-5"])
+        XCTAssertEqual(models.first?.cost ?? 0, 0.003, accuracy: 1e-9)
     }
 
     // MARK: - Codex
@@ -159,5 +199,24 @@ final class LocalUsageReaderTests: XCTestCase {
         XCTAssertEqual(oc.totalTokens, 165)  // 100 + 50 + 10 + 5 + 0
         XCTAssertEqual(oc.cost, 0.0123, accuracy: 1e-9)
         XCTAssertTrue(oc.limits.isEmpty)  // OpenCode has no rate-limit concept
+    }
+
+    func testOpenCodePerModelBreakdown() throws {
+        // Two messages share a provider/model; grouped by "providerID/modelID".
+        let a =
+            #"{"modelID":"GLM-4.6","providerID":"togetherai","tokens":{"input":100,"output":0},"cost":0.05,"time":{"created":1767348000000}}"#
+        let b =
+            #"{"modelID":"GLM-4.6","providerID":"togetherai","tokens":{"input":50,"output":0},"cost":0.02,"time":{"created":1767348000000}}"#
+        let c =
+            #"{"modelID":"Kimi","providerID":"moonshot","tokens":{"input":10,"output":0},"cost":0.01,"time":{"created":1767348000000}}"#
+        try write(a, to: ".local/share/opencode/storage/message/s/a.json")
+        try write(b, to: ".local/share/opencode/storage/message/s/b.json")
+        try write(c, to: ".local/share/opencode/storage/message/s/c.json")
+
+        let models = try provider(.opencode).models
+        XCTAssertEqual(models.count, 2)
+        XCTAssertEqual(models.first?.name, "togetherai/GLM-4.6")
+        XCTAssertEqual(models.first?.cost ?? 0, 0.07, accuracy: 1e-9)  // 0.05 + 0.02
+        XCTAssertEqual(models.first?.tokens, 150)
     }
 }

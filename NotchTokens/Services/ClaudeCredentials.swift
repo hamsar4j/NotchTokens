@@ -9,7 +9,8 @@ import OSLog
 nonisolated enum ClaudeCredentials {
     static func readAccessToken() -> String? {
         if let envToken = ProcessInfo.processInfo.environment["CLAUDE_CODE_OAUTH_TOKEN"],
-           !envToken.isEmpty {
+            !envToken.isEmpty
+        {
             return envToken
         }
 
@@ -20,8 +21,9 @@ nonisolated enum ClaudeCredentials {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.hasPrefix("{"),
-           let data = trimmed.data(using: .utf8),
-           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let data = trimmed.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
             return extractToken(from: object)
         }
 
@@ -38,7 +40,8 @@ nonisolated enum ClaudeCredentials {
 
         for value in object.values {
             if let nested = value as? [String: Any],
-               let token = extractToken(from: nested) {
+                let token = extractToken(from: nested)
+            {
                 return token
             }
         }
@@ -64,7 +67,8 @@ nonisolated enum ClaudeCredentials {
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             // Non-zero usually means the keychain item is missing or access was denied.
-            Log.credentials.debug("security exited \(process.terminationStatus) for service \(service, privacy: .public)")
+            Log.credentials.debug(
+                "security exited \(process.terminationStatus) for service \(service, privacy: .public)")
             return nil
         }
 

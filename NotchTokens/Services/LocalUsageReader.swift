@@ -81,13 +81,14 @@ nonisolated struct LocalUsageReader {
 
                 let modelName = (message["model"] as? String) ?? "<missing>"
                 let rate = pricing.rate(for: modelName)
-                let recordCost = rate?.cost(
-                    input: input,
-                    output: output,
-                    cachedRead: cacheRead,
-                    cacheWrite5m: cacheWrite5m,
-                    cacheWrite1h: cacheWrite1h
-                ) ?? 0
+                let recordCost =
+                    rate?.cost(
+                        input: input,
+                        output: output,
+                        cachedRead: cacheRead,
+                        cacheWrite5m: cacheWrite5m,
+                        cacheWrite1h: cacheWrite1h
+                    ) ?? 0
                 cost += recordCost
 
                 if let timestamp = parseDate(object["timestamp"] as? String) {
@@ -157,8 +158,7 @@ nonisolated struct LocalUsageReader {
                 var sessionModel: String?
 
                 forEachJSONLine(in: file) { object in
-                    if
-                        object["type"] as? String == "session_meta",
+                    if object["type"] as? String == "session_meta",
                         let payload = object["payload"] as? [String: Any]
                     {
                         sessionModel = sessionModel ?? (payload["model"] as? String)
@@ -174,8 +174,7 @@ nonisolated struct LocalUsageReader {
 
                     let timestamp = parseDate(object["timestamp"] as? String)
 
-                    if
-                        let info = payload["info"] as? [String: Any],
+                    if let info = payload["info"] as? [String: Any],
                         let totalUsage = info["total_token_usage"] as? [String: Any]
                     {
                         let parsedTotal = codexTotal(from: totalUsage)
@@ -191,8 +190,7 @@ nonisolated struct LocalUsageReader {
                         }
                     }
 
-                    if
-                        let timestamp,
+                    if let timestamp,
                         let rateLimits = object["rate_limits"] as? [String: Any],
                         latestLimitTimestamp == nil || timestamp > latestLimitTimestamp!
                     {
@@ -210,13 +208,14 @@ nonisolated struct LocalUsageReader {
                 let raw = sessionUsageRaw ?? [:]
                 let inputRaw = int64(raw["input_tokens"])
                 let cached = int64(raw["cached_input_tokens"])
-                let sessionCost = rate?.cost(
-                    input: max(0, inputRaw - cached),
-                    output: int64(raw["output_tokens"]),
-                    cachedRead: cached,
-                    cacheWrite5m: 0,
-                    cacheWrite1h: 0
-                ) ?? 0
+                let sessionCost =
+                    rate?.cost(
+                        input: max(0, inputRaw - cached),
+                        output: int64(raw["output_tokens"]),
+                        cachedRead: cached,
+                        cacheWrite5m: 0,
+                        cacheWrite1h: 0
+                    ) ?? 0
                 cost += sessionCost
 
                 if let sessionLastActivity, calendar.isDateInToday(sessionLastActivity) {
@@ -245,7 +244,8 @@ nonisolated struct LocalUsageReader {
     }
 
     private func readOpenCode() -> ProviderUsage {
-        let messagesRoot = home
+        let messagesRoot =
+            home
             .appendingPathComponent(".local/share/opencode/storage/message", isDirectory: true)
 
         guard fileManager.fileExists(atPath: messagesRoot.path) else {
@@ -261,11 +261,13 @@ nonisolated struct LocalUsageReader {
         var rollingThirtyDayCost: Double = 0
         var lastActivity: Date?
 
-        guard let enumerator = fileManager.enumerator(
-            at: messagesRoot,
-            includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles]
-        ) else {
+        guard
+            let enumerator = fileManager.enumerator(
+                at: messagesRoot,
+                includingPropertiesForKeys: [.isRegularFileKey],
+                options: [.skipsHiddenFiles]
+            )
+        else {
             return ProviderUsage.placeholder(kind: .opencode, title: "OpenCode")
         }
 
@@ -342,10 +344,11 @@ nonisolated struct LocalUsageReader {
 
         for line in text.split(whereSeparator: \.isNewline) {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("[") { break } // stop at first section header
+            if trimmed.hasPrefix("[") { break }  // stop at first section header
             guard trimmed.hasPrefix("model"), trimmed.contains("=") else { continue }
             let value = trimmed.split(separator: "=", maxSplits: 1).last ?? ""
-            let stripped = value
+            let stripped =
+                value
                 .trimmingCharacters(in: .whitespaces)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
             return stripped.isEmpty ? nil : stripped
@@ -383,7 +386,8 @@ nonisolated struct LocalUsageReader {
             files.append((url, values?.contentModificationDate ?? .distantPast))
         }
 
-        return files
+        return
+            files
             .sorted { $0.modified > $1.modified }
             .prefix(2_000)
             .map(\.url)
@@ -392,7 +396,8 @@ nonisolated struct LocalUsageReader {
     /// Memory-maps a file only if it's under `maxFileBytes`; returns nil otherwise.
     private func boundedData(at url: URL) -> Data? {
         if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-           size > Self.maxFileBytes {
+            size > Self.maxFileBytes
+        {
             return nil
         }
         return try? Data(contentsOf: url, options: [.mappedIfSafe])
@@ -428,7 +433,8 @@ nonisolated struct LocalUsageReader {
         var total: Int64 = 0
         if let modelUsage = object["modelUsage"] as? [String: Any] {
             for case let value as [String: Any] in modelUsage.values {
-                total += int64(value["inputTokens"])
+                total +=
+                    int64(value["inputTokens"])
                     + int64(value["outputTokens"])
                     + int64(value["cacheReadInputTokens"])
                     + int64(value["cacheCreationInputTokens"])
@@ -495,9 +501,9 @@ nonisolated struct LocalUsageReader {
 
     private func maxDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
         switch (lhs, rhs) {
-        case let (.some(l), .some(r)): max(l, r)
-        case let (.some(l), .none): l
-        case let (.none, .some(r)): r
+        case (.some(let l), .some(let r)): max(l, r)
+        case (.some(let l), .none): l
+        case (.none, .some(let r)): r
         case (.none, .none): nil
         }
     }

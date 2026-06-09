@@ -14,10 +14,20 @@ xcodebuild -scheme NotchTokens -configuration Debug -destination 'platform=macOS
 # Run tests (hosted NotchTokensTests target)
 xcodebuild test -scheme NotchTokens -configuration Debug -destination 'platform=macOS'
 
+# Format / lint (Apple swift-format, config in .swift-format)
+xcrun swift format format --in-place --recursive --configuration .swift-format NotchTokens NotchTokensTests
+xcrun swift format lint --recursive --configuration .swift-format NotchTokens NotchTokensTests
+
 # Run: open the built .app from DerivedData, or hit ⌘R in Xcode
 ```
 
-There is no linter and no Swift Package — just the Xcode project, plus a hosted `NotchTokensTests` unit-test target. The build target is a macOS menubar (`.accessory`) app.
+There is no Swift Package — just the Xcode project, plus a hosted `NotchTokensTests` unit-test target. The build target is a macOS menubar (`.accessory`) app.
+
+## Formatting, linting & strictness
+
+- **Formatter/linter:** Apple's `swift format` (toolchain subcommand, no extra install), configured by `.swift-format` (4-space indent, 120 col). Formatting is the enforced layer; lint is advisory because some lines (long JSONL test fixtures) legitimately exceed the column limit.
+- **Pre-commit hook:** `.githooks/pre-commit` formats staged Swift files in place, re-stages them, and runs an advisory lint. Enable once per clone: `git config core.hooksPath .githooks`.
+- **Compiler strictness (Debug only):** the Debug config sets `SWIFT_STRICT_CONCURRENCY = complete` and `SWIFT_TREAT_WARNINGS_AS_ERRORS = YES` — this is the closest thing to a type checker, so a clean Debug build is the gate. Release is left lenient so archives never break on a new warning. Keep code concurrency-clean (no Sendable-closure mutation of `@MainActor` state; selector-based timers, or `nonisolated(unsafe)` for deinit-touched stored properties).
 
 The project uses **Xcode 16's `PBXFileSystemSynchronizedRootGroup`**: any file added under `NotchTokens/` (including subdirectories) is automatically included in the target. No `.pbxproj` edits are needed when adding/moving Swift files, assets, or resources — moving a `.swift` file with `mv` into a new subdir Just Works after a clean build. (Test files go under `NotchTokensTests/`, which is its own synchronized group.)
 

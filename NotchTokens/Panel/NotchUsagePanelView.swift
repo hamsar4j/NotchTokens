@@ -102,7 +102,8 @@ final class NotchUsagePanelView: NSView {
         guard isExpanded else { return }
         let point = convert(event.locationInWindow, from: nil)
         let newHoverButton = buttonFrames.first(where: { $0.value.contains(point) })?.key
-        let newHoverRow = newHoverButton == nil
+        let newHoverRow =
+            newHoverButton == nil
             ? rowFrames.first(where: { $0.value.contains(point) })?.key
             : nil
 
@@ -248,10 +249,13 @@ final class NotchUsagePanelView: NSView {
         guard !isRefreshing else { return }
         isRefreshing = true
         refreshTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            self?.refreshAngle += 0.28
-            self?.needsDisplay = true
-        }
+        let timer = Timer(
+            timeInterval: 1.0 / 30.0,
+            target: self,
+            selector: #selector(advanceRefreshSpinner),
+            userInfo: nil,
+            repeats: true
+        )
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
 
@@ -259,6 +263,11 @@ final class NotchUsagePanelView: NSView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
             self?.stopRefreshAnimation()
         }
+    }
+
+    @objc private func advanceRefreshSpinner() {
+        refreshAngle += 0.28
+        needsDisplay = true
     }
 
     private func stopRefreshAnimation() {
@@ -336,7 +345,8 @@ final class NotchUsagePanelView: NSView {
         if let provider {
             drawCompactProviderLogo(provider, in: logoRect)
         } else {
-            drawSymbol("questionmark", in: logoRect.insetBy(dx: 4, dy: 4), color: NSColor.white.withAlphaComponent(0.45))
+            drawSymbol(
+                "questionmark", in: logoRect.insetBy(dx: 4, dy: 4), color: NSColor.white.withAlphaComponent(0.45))
         }
 
         if let provider, let badge = statusBadge(for: provider) {
@@ -359,12 +369,15 @@ final class NotchUsagePanelView: NSView {
         if hasData, let pct = percent {
             let fillWidth = max(2, barWidth * CGFloat(pct / 100))
             usageColor(pct).setFill()
-            roundedPath(CGRect(x: bar.minX, y: bar.minY, width: fillWidth, height: barHeight), radius: barHeight / 2).fill()
+            roundedPath(CGRect(x: bar.minX, y: bar.minY, width: fillWidth, height: barHeight), radius: barHeight / 2)
+                .fill()
         }
 
         let textRect = CGRect(x: bar.maxX + 5, y: contentCenterY - 8, width: textWidth, height: 16)
         let text = hasData ? (percent.map { "\(Int($0.rounded()))%" } ?? "--") : "--"
-        drawText(text, in: textRect, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: .white, alignment: .right)
+        drawText(
+            text, in: textRect, font: .monospacedDigitSystemFont(ofSize: 10, weight: .semibold), color: .white,
+            alignment: .right)
     }
 
     private func drawExpanded() {
@@ -577,7 +590,9 @@ final class NotchUsagePanelView: NSView {
 
             let symbolName = kind == .pin && isPinned ? "pin.fill" : kind.symbolName
             let rotation: CGFloat = (kind == .refresh && isRefreshing) ? refreshAngle : 0
-            drawSymbol(symbolName, in: frame.insetBy(dx: 8, dy: 8), color: NSColor.white.withAlphaComponent(iconAlpha), rotation: rotation)
+            drawSymbol(
+                symbolName, in: frame.insetBy(dx: 8, dy: 8), color: NSColor.white.withAlphaComponent(iconAlpha),
+                rotation: rotation)
 
             x -= (buttonSize + spacing)
         }
@@ -677,7 +692,8 @@ final class NotchUsagePanelView: NSView {
             parts.append(formatCost(provider.cost))
         }
         if let peak = provider.limits.max(by: { $0.usedPercent < $1.usedPercent }),
-           let resets = peak.resetsAt {
+            let resets = peak.resetsAt
+        {
             parts.append("resets \(relativeString(resets))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
@@ -698,8 +714,12 @@ final class NotchUsagePanelView: NSView {
 
     private func lerp(_ a: NSColor, _ b: NSColor, t: Double) -> NSColor {
         let t = CGFloat(min(max(t, 0), 1))
-        let ar = a.redComponent, ag = a.greenComponent, ab = a.blueComponent
-        let br = b.redComponent, bg = b.greenComponent, bb = b.blueComponent
+        let ar = a.redComponent
+        let ag = a.greenComponent
+        let ab = a.blueComponent
+        let br = b.redComponent
+        let bg = b.greenComponent
+        let bb = b.blueComponent
         return NSColor(
             calibratedRed: ar + (br - ar) * t,
             green: ag + (bg - ag) * t,
@@ -725,9 +745,10 @@ final class NotchUsagePanelView: NSView {
 
     private func drawSymbol(_ name: String, in rect: CGRect, color: NSColor, rotation: CGFloat = 0) {
         guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return }
-        let configured = image.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: rect.height, weight: .semibold)
-        ) ?? image
+        let configured =
+            image.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: rect.height, weight: .semibold)
+            ) ?? image
         configured.isTemplate = true
 
         NSGraphicsContext.saveGraphicsState()
@@ -752,7 +773,9 @@ final class NotchUsagePanelView: NSView {
         NSGraphicsContext.restoreGraphicsState()
     }
 
-    private func drawText(_ value: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
+    private func drawText(
+        _ value: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left
+    ) {
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = alignment
         paragraph.lineBreakMode = .byTruncatingTail

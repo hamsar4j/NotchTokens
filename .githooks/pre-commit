@@ -1,0 +1,34 @@
+#!/bin/sh
+#
+# Pre-commit hook: format (and lint) staged Swift files with Apple's swift-format.
+# Enable once per clone with:  git config core.hooksPath .githooks
+#
+# Formatting is enforced (files are rewritten in place and re-staged). Linting is
+# advisory — it prints findings but does not block the commit, because some lines
+# (e.g. long JSONL test fixtures) legitimately exceed the line length.
+
+set -e
+
+# Staged, still-present Swift files (Added / Copied / Modified).
+swift_files=$(git diff --cached --name-only --diff-filter=ACM -- '*.swift')
+[ -z "$swift_files" ] && exit 0
+
+if ! xcrun --find swift >/dev/null 2>&1; then
+    echo "pre-commit: swift toolchain not found; skipping swift-format." >&2
+    exit 0
+fi
+
+# Format in place, then re-stage whatever changed.
+printf '%s\n' "$swift_files" | while IFS= read -r f; do
+    [ -n "$f" ] && xcrun swift format format --in-place --configuration .swift-format "$f"
+done
+printf '%s\n' "$swift_files" | while IFS= read -r f; do
+    [ -n "$f" ] && git add "$f"
+done
+
+# Advisory lint pass (never blocks).
+printf '%s\n' "$swift_files" | while IFS= read -r f; do
+    [ -n "$f" ] && xcrun swift format lint --configuration .swift-format "$f" || true
+done
+
+exit 0

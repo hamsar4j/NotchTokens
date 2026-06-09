@@ -3,8 +3,8 @@
 //  NotchTokens
 //
 
-import Foundation
 import Combine
+import Foundation
 import UserNotifications
 
 @MainActor
@@ -21,7 +21,9 @@ final class UsageMonitor {
 
     private let claudeUsage = ClaudeUsageService()
     private let pricingFetcher = PricingFetcher()
-    private var timer: Timer?
+    // Accessed from the nonisolated deinit to stop the run-loop timer; safe because the
+    // timer is only ever created/invalidated on the main actor.
+    nonisolated(unsafe) private var timer: Timer?
     private var settingsCancellable: AnyCancellable?
     private var baseSnapshot = UsageSnapshot.placeholder
     private var refreshGeneration = 0
@@ -65,7 +67,8 @@ final class UsageMonitor {
             var snapshot = reader.readSnapshot()
 
             if currentSettings.showClaude,
-               let index = snapshot.providers.firstIndex(where: { $0.kind == .claude }) {
+                let index = snapshot.providers.firstIndex(where: { $0.kind == .claude })
+            {
                 let claudeLimits = await claudeUsage.fetchLimits()
                 snapshot.providers[index].limitStatus = claudeLimits.statusMessage
                 if !claudeLimits.limits.isEmpty {

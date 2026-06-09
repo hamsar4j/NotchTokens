@@ -4,25 +4,26 @@
 //
 
 import XCTest
+
 @testable import NotchTokens
 
 @MainActor
 final class PricingTableTests: XCTestCase {
 
     private let sampleJSON = """
-    {
-      "claude-sonnet-4-5": {
-        "input_cost_per_token": 0.000003,
-        "output_cost_per_token": 0.000015,
-        "cache_read_input_token_cost": 0.0000003,
-        "cache_creation_input_token_cost": 0.00000375
-      },
-      "gpt-5": {
-        "input_cost_per_token": 0.00000125,
-        "output_cost_per_token": 0.00001
-      }
-    }
-    """
+        {
+          "claude-sonnet-4-5": {
+            "input_cost_per_token": 0.000003,
+            "output_cost_per_token": 0.000015,
+            "cache_read_input_token_cost": 0.0000003,
+            "cache_creation_input_token_cost": 0.00000375
+          },
+          "gpt-5": {
+            "input_cost_per_token": 0.00000125,
+            "output_cost_per_token": 0.00001
+          }
+        }
+        """
 
     private func makeTable() throws -> PricingTable {
         try XCTUnwrap(PricingTable.decode(Data(sampleJSON.utf8)))

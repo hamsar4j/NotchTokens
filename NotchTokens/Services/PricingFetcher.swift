@@ -7,7 +7,8 @@ import Foundation
 import OSLog
 
 actor PricingFetcher {
-    private static let remoteURL = URL(string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
+    private static let remoteURL = URL(
+        string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
     private static let cacheTTL: TimeInterval = 24 * 60 * 60
 
     private var table: PricingTable
@@ -29,7 +30,8 @@ actor PricingFetcher {
         }
 
         self.table = .empty
-        Log.pricing.error("No pricing source available (disk + bundled both failed); costs will read as $0 until a refresh succeeds")
+        Log.pricing.error(
+            "No pricing source available (disk + bundled both failed); costs will read as $0 until a refresh succeeds")
     }
 
     func current() -> PricingTable {
@@ -76,18 +78,21 @@ actor PricingFetcher {
         failureCount += 1
         let delay = min(600, 60 * pow(2.0, Double(failureCount - 1)))
         nextAllowedAttempt = Date().addingTimeInterval(delay)
-        Log.pricing.error("Pricing refresh failed (\(reason, privacy: .public)); keeping existing table, retry in \(Int(delay))s")
+        Log.pricing.error(
+            "Pricing refresh failed (\(reason, privacy: .public)); keeping existing table, retry in \(Int(delay))s")
     }
 
     // MARK: - Disk cache
 
     private static var cacheURL: URL? {
-        guard let dir = try? FileManager.default.url(
-            for: .cachesDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        ) else {
+        guard
+            let dir = try? FileManager.default.url(
+                for: .cachesDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+        else {
             return nil
         }
 

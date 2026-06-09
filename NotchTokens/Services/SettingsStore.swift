@@ -3,8 +3,8 @@
 //  NotchTokens
 //
 
-import Foundation
 import Combine
+import Foundation
 
 @MainActor
 final class SettingsStore: ObservableObject {
@@ -19,7 +19,8 @@ final class SettingsStore: ObservableObject {
 
     init() {
         if let data = try? Data(contentsOf: Self.fileURL),
-           let loaded = try? JSONDecoder().decode(Settings.self, from: data) {
+            let loaded = try? JSONDecoder().decode(Settings.self, from: data)
+        {
             self.settings = loaded
         } else {
             self.settings = .default
@@ -37,12 +38,13 @@ final class SettingsStore: ObservableObject {
     }
 
     private static var fileURL: URL {
-        let appSupport = (try? FileManager.default.url(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask,
-            appropriateFor: nil,
-            create: true
-        )) ?? FileManager.default.homeDirectoryForCurrentUser
+        let appSupport =
+            (try? FileManager.default.url(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )) ?? FileManager.default.homeDirectoryForCurrentUser
         return appSupport.appendingPathComponent("NotchTokens/config.json")
     }
 }

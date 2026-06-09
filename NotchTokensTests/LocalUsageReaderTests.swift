@@ -4,9 +4,9 @@
 //
 
 import XCTest
+
 @testable import NotchTokens
 
-@MainActor
 final class LocalUsageReaderTests: XCTestCase {
 
     private var tempHome: URL!
@@ -39,19 +39,19 @@ final class LocalUsageReaderTests: XCTestCase {
 
     private static func pricingTable() -> PricingTable {
         let json = """
-        {
-          "claude-sonnet-4-5": {
-            "input_cost_per_token": 0.000003,
-            "output_cost_per_token": 0.000015,
-            "cache_read_input_token_cost": 0.0000003,
-            "cache_creation_input_token_cost": 0.00000375
-          },
-          "gpt-5": {
-            "input_cost_per_token": 0.00000125,
-            "output_cost_per_token": 0.00001
-          }
-        }
-        """
+            {
+              "claude-sonnet-4-5": {
+                "input_cost_per_token": 0.000003,
+                "output_cost_per_token": 0.000015,
+                "cache_read_input_token_cost": 0.0000003,
+                "cache_creation_input_token_cost": 0.00000375
+              },
+              "gpt-5": {
+                "input_cost_per_token": 0.00000125,
+                "output_cost_per_token": 0.00001
+              }
+            }
+            """
         return PricingTable.decode(Data(json.utf8)) ?? .empty
     }
 
@@ -110,10 +110,10 @@ final class LocalUsageReaderTests: XCTestCase {
     func testCodexUsesLastCumulativeTotalNotSum() throws {
         // token_count events carry a *cumulative* total; the last one wins (not a sum).
         let lines = """
-        {"type":"session_meta","payload":{"model":"gpt-5"}}
-        {"type":"event_msg","timestamp":"2026-01-02T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":700,"cached_input_tokens":0,"output_tokens":300,"total_tokens":1000}}}}
-        {"type":"event_msg","timestamp":"2026-01-02T10:05:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":500,"total_tokens":1500}}}}
-        """
+            {"type":"session_meta","payload":{"model":"gpt-5"}}
+            {"type":"event_msg","timestamp":"2026-01-02T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":700,"cached_input_tokens":0,"output_tokens":300,"total_tokens":1000}}}}
+            {"type":"event_msg","timestamp":"2026-01-02T10:05:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":500,"total_tokens":1500}}}}
+            """
         try write(lines + "\n", to: ".codex/sessions/2026/session.jsonl")
 
         XCTAssertEqual(try provider(.codex).totalTokens, 1500)
@@ -123,9 +123,9 @@ final class LocalUsageReaderTests: XCTestCase {
         // input_tokens (1000) includes cached (400); cost must charge 600 at input rate,
         // 400 at the cache-read rate, so cached tokens aren't double-charged at input price.
         let lines = """
-        {"type":"session_meta","payload":{"model":"gpt-5"}}
-        {"type":"event_msg","timestamp":"2026-01-02T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":200,"total_tokens":1200}}}}
-        """
+            {"type":"session_meta","payload":{"model":"gpt-5"}}
+            {"type":"event_msg","timestamp":"2026-01-02T10:00:00Z","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":400,"output_tokens":200,"total_tokens":1200}}}}
+            """
         try write(lines + "\n", to: ".codex/sessions/2026/session.jsonl")
 
         let codex = try provider(.codex, pricing: Self.pricingTable())
@@ -137,9 +137,9 @@ final class LocalUsageReaderTests: XCTestCase {
 
     func testCodexReadsRateLimits() throws {
         let lines = """
-        {"type":"session_meta","payload":{"model":"gpt-5"}}
-        {"type":"event_msg","timestamp":"2026-01-02T10:00:00Z","rate_limits":{"primary":{"used_percent":40},"secondary":{"used_percent":12}},"payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":10,"total_tokens":20}}}}
-        """
+            {"type":"session_meta","payload":{"model":"gpt-5"}}
+            {"type":"event_msg","timestamp":"2026-01-02T10:00:00Z","rate_limits":{"primary":{"used_percent":40},"secondary":{"used_percent":12}},"payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":10,"output_tokens":10,"total_tokens":20}}}}
+            """
         try write(lines + "\n", to: ".codex/sessions/2026/session.jsonl")
 
         let limits = try provider(.codex).limits
@@ -151,13 +151,13 @@ final class LocalUsageReaderTests: XCTestCase {
 
     func testOpenCodeSumsPrecomputedCost() throws {
         let msg = """
-        {"tokens":{"input":100,"output":50,"reasoning":10,"cache":{"read":5,"write":0}},"cost":0.0123,"time":{"created":1767348000000}}
-        """
+            {"tokens":{"input":100,"output":50,"reasoning":10,"cache":{"read":5,"write":0}},"cost":0.0123,"time":{"created":1767348000000}}
+            """
         try write(msg, to: ".local/share/opencode/storage/message/sess1/msg1.json")
 
         let oc = try provider(.opencode)
-        XCTAssertEqual(oc.totalTokens, 165)   // 100 + 50 + 10 + 5 + 0
+        XCTAssertEqual(oc.totalTokens, 165)  // 100 + 50 + 10 + 5 + 0
         XCTAssertEqual(oc.cost, 0.0123, accuracy: 1e-9)
-        XCTAssertTrue(oc.limits.isEmpty)       // OpenCode has no rate-limit concept
+        XCTAssertTrue(oc.limits.isEmpty)  // OpenCode has no rate-limit concept
     }
 }

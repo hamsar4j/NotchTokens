@@ -143,9 +143,10 @@ actor ClaudeUsageService {
         }
 
         if percent == nil,
-           let used = (raw["used"] as? Double) ?? (raw["used"] as? Int).map(Double.init),
-           let limit = (raw["limit"] as? Double) ?? (raw["limit"] as? Int).map(Double.init),
-           limit > 0 {
+            let used = (raw["used"] as? Double) ?? (raw["used"] as? Int).map(Double.init),
+            let limit = (raw["limit"] as? Double) ?? (raw["limit"] as? Int).map(Double.init),
+            limit > 0
+        {
             percent = (used / limit) * 100
         }
 

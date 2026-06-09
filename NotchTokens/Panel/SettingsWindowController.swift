@@ -24,10 +24,11 @@ final class SettingsWindowController {
         }
 
         var window: NSWindow!
-        let hosting = NSHostingController(rootView: SettingsView(
-            store: store,
-            onDone: { window?.close() }
-        ))
+        let hosting = NSHostingController(
+            rootView: SettingsView(
+                store: store,
+                onDone: { window?.close() }
+            ))
         window = NSWindow(contentViewController: hosting)
         window.title = "NotchTokens Settings"
         window.styleMask = [.titled, .closable]

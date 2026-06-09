@@ -62,7 +62,8 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
         showClaude = try container.decodeIfPresent(Bool.self, forKey: .showClaude) ?? true
         showCodex = try container.decodeIfPresent(Bool.self, forKey: .showCodex) ?? true
         showOpenCode = try container.decodeIfPresent(Bool.self, forKey: .showOpenCode) ?? true
-        alertThreshold = try container.decodeIfPresent(Double.self, forKey: .alertThreshold)
+        alertThreshold =
+            try container.decodeIfPresent(Double.self, forKey: .alertThreshold)
             ?? Settings.defaultAlertThreshold
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
     }

@@ -247,6 +247,11 @@ final class NotchUsagePanelView: NSView {
             drawSymbol("questionmark", in: logoRect.insetBy(dx: 4, dy: 4), color: NSColor.white.withAlphaComponent(0.45))
         }
 
+        if hasData, let pct = percent, pct >= alertThreshold {
+            let badge: CGFloat = 11
+            drawWarningBadge(in: CGRect(x: logoRect.maxX - 6, y: logoRect.minY - 3, width: badge, height: badge))
+        }
+
         let textWidth: CGFloat = 34
         let barX = logoRect.maxX + 7
         let barWidth = max(10, width - logoSize - 7 - textWidth - 5)
@@ -352,6 +357,10 @@ final class NotchUsagePanelView: NSView {
             color: percent.map(usageColor) ?? NSColor.white.withAlphaComponent(0.4),
             alignment: .right
         )
+
+        if isWarning(provider) {
+            drawWarningBadge(in: CGRect(x: rect.maxX - 78, y: rect.minY + 8, width: 13, height: 13))
+        }
 
         // Bar
         let barRect = CGRect(x: rect.minX + 42, y: rect.minY + 42, width: rect.width - 42, height: 8)
@@ -461,6 +470,21 @@ final class NotchUsagePanelView: NSView {
     private func peakPercent(for provider: ProviderUsage?) -> Double? {
         guard let provider, !provider.limits.isEmpty else { return nil }
         return provider.limits.map(\.usedPercent).max()
+    }
+
+    private var alertThreshold: Double {
+        monitor.settings.settings.alertThreshold
+    }
+
+    private func isWarning(_ provider: ProviderUsage) -> Bool {
+        guard provider.state == .ready, let peak = peakPercent(for: provider) else { return false }
+        return peak >= alertThreshold
+    }
+
+    private static let warningColor = NSColor(calibratedRed: 0.98, green: 0.74, blue: 0.18, alpha: 1)
+
+    private func drawWarningBadge(in rect: CGRect) {
+        drawSymbol("exclamationmark.triangle.fill", in: rect, color: Self.warningColor)
     }
 
     private func rowSubtitle(_ provider: ProviderUsage) -> String {

@@ -30,6 +30,20 @@ final class SettingsCodingTests: XCTestCase {
         XCTAssertTrue(settings.showCodex)
     }
 
+    func testMissingAlertFieldsUseDefaults() throws {
+        // A config written before alerts existed should default to the standard threshold,
+        // with notifications on.
+        let settings = try decode(#"{ "codexBudget": 50 }"#)
+        XCTAssertEqual(settings.alertThreshold, Settings.defaultAlertThreshold)
+        XCTAssertTrue(settings.notificationsEnabled)
+    }
+
+    func testAlertFieldsDecodeWhenPresent() throws {
+        let settings = try decode(#"{ "alertThreshold": 90, "notificationsEnabled": false }"#)
+        XCTAssertEqual(settings.alertThreshold, 90)
+        XCTAssertFalse(settings.notificationsEnabled)
+    }
+
     func testExtraUnknownKeysAreIgnored() throws {
         let settings = try decode(#"{ "showCodex": false, "futureFlag": 123, "nested": { "x": 1 } }"#)
         XCTAssertFalse(settings.showCodex)

@@ -86,6 +86,24 @@ private struct SettingsView: View {
                 .toggleStyle(.checkbox)
             }
 
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Usage Alerts")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+
+                HStack {
+                    Text("Warn at")
+                        .frame(width: 90, alignment: .leading)
+                    Slider(value: $store.settings.alertThreshold, in: 50...100, step: 5)
+                    Text("\(Int(store.settings.alertThreshold))%")
+                        .font(.body.monospacedDigit())
+                        .frame(width: 40, alignment: .trailing)
+                }
+
+                Toggle("Notify when a provider crosses the threshold", isOn: $store.settings.notificationsEnabled)
+                    .toggleStyle(.checkbox)
+            }
+
             HStack {
                 Spacer()
                 Button("Done") {

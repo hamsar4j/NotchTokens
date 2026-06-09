@@ -5,6 +5,7 @@
 
 import Foundation
 import Combine
+import UserNotifications
 
 @MainActor
 final class UsageMonitor {
@@ -24,6 +25,8 @@ final class UsageMonitor {
     private var settingsCancellable: AnyCancellable?
     private var baseSnapshot = UsageSnapshot.placeholder
     private var refreshGeneration = 0
+    /// "<kind>-<window>" keys currently above threshold, so each crossing notifies once.
+    private var firedAlerts: Set<String> = []
 
     init(settings: SettingsStore) {
         self.settings = settings
@@ -83,7 +86,44 @@ final class UsageMonitor {
 
     private func publish(_ baseSnapshot: UsageSnapshot, using settings: Settings) {
         self.baseSnapshot = baseSnapshot
-        snapshot = displaySnapshot(from: baseSnapshot, using: settings)
+        let display = displaySnapshot(from: baseSnapshot, using: settings)
+        evaluateAlerts(display, using: settings)
+        snapshot = display
+    }
+
+    /// Fires a system notification the first time a provider's limit window crosses the
+    /// threshold, and re-arms once it drops back below so the next window can alert again.
+    private func evaluateAlerts(_ snapshot: UsageSnapshot, using settings: Settings) {
+        let threshold = settings.alertThreshold
+
+        for provider in snapshot.providers where provider.state == .ready {
+            for window in provider.limits {
+                let key = "\(provider.kind.rawValue)-\(window.name)"
+
+                if window.usedPercent >= threshold {
+                    guard firedAlerts.insert(key).inserted else { continue }
+                    if settings.notificationsEnabled {
+                        postAlert(provider: provider, window: window)
+                    }
+                } else {
+                    firedAlerts.remove(key)
+                }
+            }
+        }
+    }
+
+    private func postAlert(provider: ProviderUsage, window: LimitWindow) {
+        let content = UNMutableNotificationContent()
+        content.title = "\(provider.title) usage high"
+        content.body = "\(Int(window.usedPercent.rounded()))% of the \(window.name) limit used."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "notchtokens.\(provider.kind.rawValue).\(window.name)",
+            content: content,
+            trigger: nil
+        )
+        UNUserNotificationCenter.current().add(request)
     }
 
     private func displaySnapshot(from snapshot: UsageSnapshot, using settings: Settings) -> UsageSnapshot {

@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import UserNotifications
 
 @main
 enum NotchTokensMain {
@@ -38,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController = controller
         controller.show()
         monitor.refresh()
+
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

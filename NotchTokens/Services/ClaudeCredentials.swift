@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 nonisolated enum ClaudeCredentials {
     static func readAccessToken() -> String? {
@@ -56,15 +57,22 @@ nonisolated enum ClaudeCredentials {
         do {
             try process.run()
         } catch {
+            Log.credentials.debug("security spawn failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
 
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
+            // Non-zero usually means the keychain item is missing or access was denied.
+            Log.credentials.debug("security exited \(process.terminationStatus) for service \(service, privacy: .public)")
             return nil
         }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)
+        let output = String(data: data, encoding: .utf8)
+        if output?.isEmpty ?? true {
+            Log.credentials.debug("security returned empty output for service \(service, privacy: .public)")
+        }
+        return output
     }
 }

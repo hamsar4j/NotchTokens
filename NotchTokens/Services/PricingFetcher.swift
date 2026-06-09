@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 actor PricingFetcher {
     private static let remoteURL = URL(string: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")!
@@ -23,10 +24,12 @@ actor PricingFetcher {
 
         if let bundled = Self.loadBundled(), let decoded = PricingTable.decode(bundled) {
             self.table = decoded
+            Log.pricing.notice("No usable disk cache; using bundled pricing snapshot")
             return
         }
 
         self.table = .empty
+        Log.pricing.error("No pricing source available (disk + bundled both failed); costs will read as $0 until a refresh succeeds")
     }
 
     func current() -> PricingTable {
@@ -48,12 +51,13 @@ actor PricingFetcher {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard
-                let http = response as? HTTPURLResponse,
-                (200..<300).contains(http.statusCode),
-                let decoded = PricingTable.decode(data)
-            else {
-                recordFailure()
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+                recordFailure("HTTP \(code)")
+                return
+            }
+            guard let decoded = PricingTable.decode(data) else {
+                recordFailure("undecodable pricing payload")
                 return
             }
 
@@ -64,14 +68,15 @@ actor PricingFetcher {
             Self.saveDiskCache(data)
         } catch {
             // keep existing table on failure
-            recordFailure()
+            recordFailure(error.localizedDescription)
         }
     }
 
-    private func recordFailure() {
+    private func recordFailure(_ reason: String) {
         failureCount += 1
         let delay = min(600, 60 * pow(2.0, Double(failureCount - 1)))
         nextAllowedAttempt = Date().addingTimeInterval(delay)
+        Log.pricing.error("Pricing refresh failed (\(reason, privacy: .public)); keeping existing table, retry in \(Int(delay))s")
     }
 
     // MARK: - Disk cache

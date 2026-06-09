@@ -7,6 +7,9 @@ import Foundation
 
 nonisolated struct LocalUsageReader {
     private static let rollingThirtyDayInterval: TimeInterval = 30 * 24 * 60 * 60
+    /// Skip pathologically large session files — a single multi-GB JSONL would otherwise
+    /// be materialized into a String and blow up memory. Real sessions are far smaller.
+    private static let maxFileBytes = 50 * 1024 * 1024
 
     private let fileManager = FileManager.default
     private let calendar = Calendar.current
@@ -266,7 +269,7 @@ nonisolated struct LocalUsageReader {
 
         for case let url as URL in enumerator where url.pathExtension == "json" {
             guard
-                let data = try? Data(contentsOf: url, options: [.mappedIfSafe]),
+                let data = boundedData(at: url),
                 let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else {
                 continue
@@ -384,9 +387,18 @@ nonisolated struct LocalUsageReader {
             .map(\.url)
     }
 
+    /// Memory-maps a file only if it's under `maxFileBytes`; returns nil otherwise.
+    private func boundedData(at url: URL) -> Data? {
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+           size > Self.maxFileBytes {
+            return nil
+        }
+        return try? Data(contentsOf: url, options: [.mappedIfSafe])
+    }
+
     private func forEachJSONLine(in file: URL, _ body: ([String: Any]) -> Void) {
         guard
-            let data = try? Data(contentsOf: file, options: [.mappedIfSafe]),
+            let data = boundedData(at: file),
             let text = String(data: data, encoding: .utf8)
         else {
             return

@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import OSLog
 
 nonisolated struct ClaudeLimitFetch {
     var limits: [LimitWindow]
@@ -17,6 +18,7 @@ actor ClaudeUsageService {
     private var nextAllowedAttempt: Date?
     private var cachedLimits: [LimitWindow] = []
     private var lastLoggedStatus: String?
+    private var currentRequestID = ""
 
     func fetchLimits() async -> ClaudeLimitFetch {
         if let next = nextAllowedAttempt, next > Date() {
@@ -25,6 +27,10 @@ actor ClaudeUsageService {
                 statusMessage: retryMessage("Claude limits retrying", nextAttempt: next)
             )
         }
+
+        // A short per-attempt id ties a log line to a specific request for field reports.
+        let requestID = String(UUID().uuidString.prefix(8))
+        currentRequestID = requestID
 
         guard let token = ClaudeCredentials.readAccessToken() else {
             return recordFailure("Claude credentials unavailable", authProblem: true)
@@ -38,6 +44,7 @@ actor ClaudeUsageService {
         request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         request.addValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.addValue("claude-cli/1.0 (external, notchtokens)", forHTTPHeaderField: "User-Agent")
+        request.addValue(requestID, forHTTPHeaderField: "X-Request-ID")
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
@@ -89,9 +96,12 @@ actor ClaudeUsageService {
     }
 
     private func logStatus(_ message: String) {
+        // Dedupe on the semantic message so identical 60s-poll statuses don't spam the log,
+        // but emit the current request id alongside it for tracing.
         guard message != lastLoggedStatus else { return }
         lastLoggedStatus = message
-        print("[Claude usage] \(message)")
+        let line = currentRequestID.isEmpty ? message : "\(message) [req \(currentRequestID)]"
+        Log.claudeUsage.info("\(line, privacy: .public)")
     }
 
     static func parseLimits(from object: [String: Any]) -> [LimitWindow] {

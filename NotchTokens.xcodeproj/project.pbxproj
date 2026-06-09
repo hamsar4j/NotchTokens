@@ -6,6 +6,16 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		AA000000000000000000000B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 540C0DAB2FBB0B7F007C4704 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 540C0DB22FBB0B7F007C4704;
+			remoteInfo = NotchTokens;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		540C0DB32FBB0B7F007C4704 /* NotchTokens.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NotchTokens.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000002 /* NotchTokensTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = NotchTokensTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -188,16 +198,6 @@
 			targetProxy = AA000000000000000000000B /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
-
-/* Begin PBXContainerItemProxy section */
-		AA000000000000000000000B /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 540C0DAB2FBB0B7F007C4704 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 540C0DB22FBB0B7F007C4704;
-			remoteInfo = NotchTokens;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin XCBuildConfiguration section */
 		540C0DBC2FBB0B81007C4704 /* Debug */ = {

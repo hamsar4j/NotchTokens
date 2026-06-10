@@ -9,7 +9,7 @@ import AppKit
 /// click, opens a popover hosting the same panel view used by the notch (in embedded mode).
 @MainActor
 final class MenuBarController {
-    private static let contentSize = CGSize(width: 380, height: 292)
+    private static let contentSize = NotchUsagePanelView.expandedSize
 
     private let monitor: UsageMonitor
     private let statusItem: NSStatusItem

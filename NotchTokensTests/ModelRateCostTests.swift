@@ -4,6 +4,7 @@
 //
 
 import XCTest
+
 @testable import NotchTokens
 
 @MainActor

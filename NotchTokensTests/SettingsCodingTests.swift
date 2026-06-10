@@ -53,6 +53,15 @@ final class SettingsCodingTests: XCTestCase {
         XCTAssertEqual(try decode(#"{ "displayMode": "menuBar" }"#).displayMode, .menuBar)
     }
 
+    func testMissingRefreshIntervalUsesDefault() throws {
+        // A config written before the refresh-interval setting existed keeps the 60s cadence.
+        XCTAssertEqual(try decode("{}").refreshInterval, Settings.defaultRefreshInterval)
+    }
+
+    func testRefreshIntervalDecodesWhenPresent() throws {
+        XCTAssertEqual(try decode(#"{ "refreshInterval": 300 }"#).refreshInterval, 300)
+    }
+
     func testExtraUnknownKeysAreIgnored() throws {
         let settings = try decode(#"{ "showCodex": false, "futureFlag": 123, "nested": { "x": 1 } }"#)
         XCTAssertFalse(settings.showCodex)

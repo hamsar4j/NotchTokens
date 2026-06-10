@@ -88,6 +88,19 @@ private struct SettingsView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            HStack {
+                Text("Refresh every")
+                    .frame(width: 90, alignment: .leading)
+                Picker("", selection: $store.settings.refreshInterval) {
+                    Text("30 seconds").tag(30.0)
+                    Text("60 seconds").tag(60.0)
+                    Text("5 minutes").tag(300.0)
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Text("Rolling 30-Day Budgets")
                 .font(.headline)
                 .foregroundStyle(.secondary)

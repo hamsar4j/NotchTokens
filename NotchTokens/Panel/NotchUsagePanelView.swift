@@ -35,6 +35,7 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     private var isPinned = false
     private var buttonFrames: [ButtonKind: CGRect] = [:]
     private var rowFrames: [ProviderKind: CGRect] = [:]
+    private var sparklineFrame: CGRect?
     private var hoveredButton: ButtonKind?
     private var hoveredRow: ProviderKind?
     private var collapseWorkItem: DispatchWorkItem?
@@ -47,7 +48,8 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     private var barTimer: Timer?
 
     private static let collapsedSize = CGSize(width: 340, height: 68)
-    private static let expandedSize = CGSize(width: 380, height: 292)
+    /// Shared with `MenuBarController`, which sizes its popover to match.
+    static let expandedSize = CGSize(width: 380, height: 336)
 
     private var targetSize: CGSize {
         isExpanded ? Self.expandedSize : Self.collapsedSize
@@ -204,6 +206,7 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
 
         buttonFrames.removeAll()
         rowFrames.removeAll()
+        sparklineFrame = nil
         drawBackground()
 
         if isExpanded {
@@ -456,6 +459,8 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
             }
         }
 
+        drawSparkline(in: CGRect(x: 16, y: y + 8, width: bounds.width - 32, height: 40))
+
         updateToolTips()
         drawFooter()
     }
@@ -636,6 +641,90 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
         return CGRect(origin: origin, size: size)
     }
 
+    /// Combined per-day spend across visible providers for the trailing history window,
+    /// oldest on the left, today highlighted. Hidden until any day has spend.
+    private func drawSparkline(in rect: CGRect) {
+        let days = sparklineDays()
+        guard !days.isEmpty else { return }
+        sparklineFrame = rect
+
+        let labelHeight: CGFloat = 11
+        let captionColor = NSColor.white.withAlphaComponent(0.38)
+        let captionFont = NSFont.systemFont(ofSize: 9, weight: .medium)
+        drawText(
+            "Last \(days.count) days",
+            in: CGRect(x: rect.minX, y: rect.minY, width: 120, height: labelHeight),
+            font: captionFont,
+            color: captionColor
+        )
+
+        let maxCost = days.map(\.cost).max() ?? 0
+        if maxCost > 0 {
+            drawText(
+                "peak \(formatCost(maxCost))",
+                in: CGRect(x: rect.maxX - 120, y: rect.minY, width: 120, height: labelHeight),
+                font: captionFont,
+                color: captionColor,
+                alignment: .right
+            )
+        }
+
+        let chart = CGRect(
+            x: rect.minX,
+            y: rect.minY + labelHeight + 4,
+            width: rect.width,
+            height: rect.height - labelHeight - 4
+        )
+        let gap: CGFloat = 3
+        let barWidth = (chart.width - gap * CGFloat(days.count - 1)) / CGFloat(days.count)
+
+        for (index, day) in days.enumerated() {
+            let fraction = maxCost > 0 ? day.cost / maxCost : 0
+            let barHeight = max(2, chart.height * CGFloat(fraction))
+            let bar = CGRect(
+                x: chart.minX + CGFloat(index) * (barWidth + gap),
+                y: chart.maxY - barHeight,
+                width: barWidth,
+                height: barHeight
+            )
+            let isToday = index == days.count - 1
+            let alpha: CGFloat = day.cost > 0 ? (isToday ? 0.9 : 0.32) : 0.10
+            NSColor.white.withAlphaComponent(alpha).setFill()
+            roundedPath(bar, radius: min(2, barHeight / 2)).fill()
+        }
+    }
+
+    /// One entry per day of the history window (oldest first), summed across visible
+    /// providers and zero-filled, or empty when there is no spend at all.
+    private func sparklineDays() -> [DailyCost] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        var totals: [Date: Double] = [:]
+        for provider in snapshot.providers {
+            for daily in provider.dailyCosts {
+                totals[daily.day, default: 0] += daily.cost
+            }
+        }
+        guard totals.values.contains(where: { $0 > 0 }) else { return [] }
+
+        return (0..<LocalUsageReader.historyDays).reversed().compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else { return nil }
+            return DailyCost(day: day, cost: totals[day] ?? 0)
+        }
+    }
+
+    private func sparklineTooltipText() -> String? {
+        let days = sparklineDays().filter { $0.cost > 0 }
+        guard !days.isEmpty else { return nil }
+        let formatter = DateFormatter()
+        formatter.setLocalizedDateFormatFromTemplate("EEE MMM d")
+        return
+            days
+            .map { "\(formatter.string(from: $0.day))   \(formatCost($0.cost))" }
+            .joined(separator: "\n")
+    }
+
     private func drawFooter() {
         let buttonSize: CGFloat = 28
         let spacing: CGFloat = 6
@@ -757,7 +846,12 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
             return
         }
         let parts = providers.map(accessibilityDescription)
-        setAccessibilityLabel("NotchTokens usage. " + parts.joined(separator: ". ") + ".")
+        var label = "NotchTokens usage. " + parts.joined(separator: ". ") + "."
+        let historyTotal = providers.flatMap(\.dailyCosts).reduce(0.0) { $0 + $1.cost }
+        if historyTotal > 0 {
+            label += " Spent \(formatCost(historyTotal)) over the last \(LocalUsageReader.historyDays) days."
+        }
+        setAccessibilityLabel(label)
     }
 
     private func accessibilityDescription(for provider: ProviderUsage) -> String {
@@ -784,9 +878,12 @@ final class NotchUsagePanelView: NSView, NSViewToolTipOwner {
     private func updateToolTips() {
         guard isExpanded, bounds.size == Self.expandedSize else { return }
 
-        let entries: [(rect: CGRect, text: String)] = snapshot.providers.compactMap { provider in
+        var entries: [(rect: CGRect, text: String)] = snapshot.providers.compactMap { provider in
             guard let rect = rowFrames[provider.kind], let text = modelBreakdownText(provider) else { return nil }
             return (rect, text)
+        }
+        if let sparklineFrame, let text = sparklineTooltipText() {
+            entries.append((sparklineFrame, text))
         }
 
         let signature = entries.map(\.text).joined(separator: "|")

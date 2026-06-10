@@ -16,6 +16,8 @@ nonisolated enum DisplayMode: String, Codable, Sendable, CaseIterable {
 nonisolated struct Settings: Codable, Equatable, Sendable {
     /// Default usage percentage at which a provider is flagged as nearing its limit.
     static let defaultAlertThreshold: Double = 80
+    /// Default seconds between automatic refreshes.
+    static let defaultRefreshInterval: Double = 60
 
     var codexBudget: Double?
     var opencodeBudget: Double?
@@ -28,6 +30,8 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
     var notificationsEnabled: Bool
     /// Notch panel vs menu-bar item (or auto-detect).
     var displayMode: DisplayMode
+    /// Seconds between automatic usage refreshes.
+    var refreshInterval: Double
 
     static let `default` = Settings(
         codexBudget: nil,
@@ -45,7 +49,8 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
         showOpenCode: Bool = true,
         alertThreshold: Double = Settings.defaultAlertThreshold,
         notificationsEnabled: Bool = true,
-        displayMode: DisplayMode = .auto
+        displayMode: DisplayMode = .auto,
+        refreshInterval: Double = Settings.defaultRefreshInterval
     ) {
         self.codexBudget = codexBudget
         self.opencodeBudget = opencodeBudget
@@ -55,6 +60,7 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
         self.alertThreshold = alertThreshold
         self.notificationsEnabled = notificationsEnabled
         self.displayMode = displayMode
+        self.refreshInterval = refreshInterval
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -66,6 +72,7 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
         case alertThreshold
         case notificationsEnabled
         case displayMode
+        case refreshInterval
     }
 
     init(from decoder: Decoder) throws {
@@ -80,6 +87,9 @@ nonisolated struct Settings: Codable, Equatable, Sendable {
             ?? Settings.defaultAlertThreshold
         notificationsEnabled = try container.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
         displayMode = try container.decodeIfPresent(DisplayMode.self, forKey: .displayMode) ?? .auto
+        refreshInterval =
+            try container.decodeIfPresent(Double.self, forKey: .refreshInterval)
+            ?? Settings.defaultRefreshInterval
     }
 
     func budget(for kind: ProviderKind) -> Double? {

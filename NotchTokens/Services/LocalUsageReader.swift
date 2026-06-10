@@ -6,6 +6,9 @@
 import Foundation
 
 nonisolated struct LocalUsageReader {
+    /// Days of per-day cost history collected for the sparkline, including today.
+    static let historyDays = 14
+
     private static let rollingThirtyDayInterval: TimeInterval = 30 * 24 * 60 * 60
     /// Skip pathologically large session files — a single multi-GB JSONL would otherwise
     /// be materialized into a String and blow up memory. Real sessions are far smaller.
@@ -45,6 +48,7 @@ nonisolated struct LocalUsageReader {
         var yesterdayCost: Double = 0
         var monthCost: Double = 0
         var modelAcc: [String: (tokens: Int64, cost: Double)] = [:]
+        var dailyAcc: [Date: Double] = [:]
 
         for file in jsonlFiles(under: projectsRoot) {
             forEachJSONLine(in: file) { object in
@@ -108,6 +112,9 @@ nonisolated struct LocalUsageReader {
                     if isInCurrentMonth(timestamp) {
                         monthCost += recordCost
                     }
+                    if let day = historyDay(for: timestamp) {
+                        dailyAcc[day, default: 0] += recordCost
+                    }
                 }
             }
         }
@@ -132,7 +139,8 @@ nonisolated struct LocalUsageReader {
             costWindowCost: monthCost,
             yesterdayCost: yesterdayCost,
             yesterdayTokens: yesterdayTotal,
-            models: sortedModels(modelAcc)
+            models: sortedModels(modelAcc),
+            dailyCosts: sortedDailyCosts(dailyAcc)
         )
     }
 
@@ -163,6 +171,7 @@ nonisolated struct LocalUsageReader {
         var yesterdayCost: Double = 0
         var rollingThirtyDayCost: Double = 0
         var modelAcc: [String: (tokens: Int64, cost: Double)] = [:]
+        var dailyAcc: [Date: Double] = [:]
 
         for root in roots {
             for file in jsonlFiles(under: root) {
@@ -245,6 +254,10 @@ nonisolated struct LocalUsageReader {
                 if let sessionLastActivity, isInRollingThirtyDays(sessionLastActivity) {
                     rollingThirtyDayCost += sessionCost
                 }
+                // Sessions are attributed to their last-activity day, same as today/yesterday.
+                if let sessionLastActivity, let day = historyDay(for: sessionLastActivity) {
+                    dailyAcc[day, default: 0] += sessionCost
+                }
             }
         }
 
@@ -262,7 +275,8 @@ nonisolated struct LocalUsageReader {
             costWindowLabel: "last 30d",
             yesterdayCost: yesterdayCost,
             yesterdayTokens: yesterdayTotal,
-            models: sortedModels(modelAcc)
+            models: sortedModels(modelAcc),
+            dailyCosts: sortedDailyCosts(dailyAcc)
         )
     }
 
@@ -286,6 +300,7 @@ nonisolated struct LocalUsageReader {
         var rollingThirtyDayCost: Double = 0
         var lastActivity: Date?
         var modelAcc: [String: (tokens: Int64, cost: Double)] = [:]
+        var dailyAcc: [Date: Double] = [:]
 
         guard
             let enumerator = fileManager.enumerator(
@@ -344,6 +359,9 @@ nonisolated struct LocalUsageReader {
                 if isInRollingThirtyDays(timestamp) {
                     rollingThirtyDayCost += messageCost
                 }
+                if let day = historyDay(for: timestamp) {
+                    dailyAcc[day, default: 0] += messageCost
+                }
             }
         }
 
@@ -361,7 +379,8 @@ nonisolated struct LocalUsageReader {
             costWindowLabel: "last 30d",
             yesterdayCost: yesterdayCost,
             yesterdayTokens: yesterdayTotal,
-            models: sortedModels(modelAcc)
+            models: sortedModels(modelAcc),
+            dailyCosts: sortedDailyCosts(dailyAcc)
         )
     }
 
@@ -381,6 +400,24 @@ nonisolated struct LocalUsageReader {
     /// against the same slice of yesterday rather than a full (larger) day.
     private func isYesterdaySoFar(_ date: Date) -> Bool {
         calendar.isDateInYesterday(date) && date <= Date().addingTimeInterval(-86_400)
+    }
+
+    /// Start-of-day bucket for the daily sparkline, or nil when the date falls outside the
+    /// trailing `historyDays` window (future timestamps are dropped too).
+    private func historyDay(for date: Date) -> Date? {
+        let today = calendar.startOfDay(for: Date())
+        let day = calendar.startOfDay(for: date)
+        guard
+            let windowStart = calendar.date(byAdding: .day, value: -(Self.historyDays - 1), to: today),
+            day >= windowStart, day <= today
+        else { return nil }
+        return day
+    }
+
+    private func sortedDailyCosts(_ acc: [Date: Double]) -> [DailyCost] {
+        acc
+            .map { DailyCost(day: $0.key, cost: $0.value) }
+            .sorted { $0.day < $1.day }
     }
 
     private func sortedModels(_ acc: [String: (tokens: Int64, cost: Double)]) -> [ModelUsage] {

@@ -24,6 +24,7 @@ final class UsageMonitor {
     // Accessed from the nonisolated deinit to stop the run-loop timer; safe because the
     // timer is only ever created/invalidated on the main actor.
     nonisolated(unsafe) private var timer: Timer?
+    private var timerInterval: TimeInterval = 0
     private var settingsCancellable: AnyCancellable?
     private var baseSnapshot = UsageSnapshot.placeholder
     private var refreshGeneration = 0
@@ -35,19 +36,30 @@ final class UsageMonitor {
         settingsCancellable = settings.$settings.dropFirst().sink { [weak self] settings in
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.scheduleTimer(interval: settings.refreshInterval)
                 self.refreshGeneration += 1
                 self.publish(self.baseSnapshot, using: settings)
             }
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refresh()
-            }
-        }
+        scheduleTimer(interval: settings.settings.refreshInterval)
     }
 
     deinit {
         timer?.invalidate()
+    }
+
+    /// (Re)creates the poll timer at the requested cadence; no-op when unchanged. Clamped
+    /// to a sane floor so a corrupt config can't spin the reader.
+    private func scheduleTimer(interval: TimeInterval) {
+        let clamped = max(10, interval)
+        guard clamped != timerInterval else { return }
+        timerInterval = clamped
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: clamped, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refresh()
+            }
+        }
     }
 
     func refresh() {

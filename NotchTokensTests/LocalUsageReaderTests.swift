@@ -74,9 +74,13 @@ final class LocalUsageReaderTests: XCTestCase {
         return formatter.string(from: date)
     }
 
-    /// Yesterday at ~00:05 — reliably "yesterday so far" regardless of when the test runs.
+    /// Yesterday at ~00:05, clamped to "now minus 24h" so it still counts as "yesterday so
+    /// far" when the suite runs within the first minutes after midnight.
     private func yesterdayEarly() -> Date {
-        Calendar.current.startOfDay(for: Date()).addingTimeInterval(-24 * 3600 + 300)
+        min(
+            Calendar.current.startOfDay(for: Date()).addingTimeInterval(-24 * 3600 + 300),
+            Date().addingTimeInterval(-86_400 - 1)
+        )
     }
 
     // MARK: - Claude
@@ -128,6 +132,31 @@ final class LocalUsageReaderTests: XCTestCase {
         let claude = try provider(.claude, pricing: Self.pricingTable())
         XCTAssertEqual(claude.yesterdayCost, 0.0105, accuracy: 1e-9)
         XCTAssertEqual(claude.todayCost, 0, accuracy: 1e-12)
+    }
+
+    func testClaudeDailyCostsBucketedByDay() throws {
+        // sonnet input-only: 1000 tokens = 0.003 today, 2000 tokens = 0.006 yesterday.
+        let today = claudeRecord(requestId: "r1", messageId: "m1", input: 1000, output: 0, timestamp: iso(Date()))
+        let yesterday = claudeRecord(
+            requestId: "r2", messageId: "m2", input: 2000, output: 0, timestamp: iso(yesterdayEarly())
+        )
+        try write("\(today)\n\(yesterday)\n", to: ".claude/projects/proj1/session.jsonl")
+
+        let daily = try provider(.claude, pricing: Self.pricingTable()).dailyCosts
+        XCTAssertEqual(daily.count, 2)
+        XCTAssertEqual(daily.first?.cost ?? 0, 0.006, accuracy: 1e-9)  // oldest first
+        XCTAssertEqual(daily.last?.day, Calendar.current.startOfDay(for: Date()))
+        XCTAssertEqual(daily.last?.cost ?? 0, 0.003, accuracy: 1e-9)
+    }
+
+    func testClaudeDailyCostsExcludeRecordsOutsideHistoryWindow() throws {
+        let old = claudeRecord(
+            requestId: "r1", messageId: "m1", input: 1000, output: 0,
+            timestamp: iso(Date().addingTimeInterval(-Double(LocalUsageReader.historyDays + 5) * 86_400))
+        )
+        try write("\(old)\n", to: ".claude/projects/proj1/session.jsonl")
+
+        XCTAssertTrue(try provider(.claude, pricing: Self.pricingTable()).dailyCosts.isEmpty)
     }
 
     func testClaudePerModelBreakdownSortedByCost() throws {
@@ -185,6 +214,19 @@ final class LocalUsageReaderTests: XCTestCase {
         let limits = try provider(.codex).limits
         XCTAssertEqual(limits.first { $0.name == "Short" }?.usedPercent, 40)
         XCTAssertEqual(limits.first { $0.name == "Long" }?.usedPercent, 12)
+    }
+
+    func testCodexDailyCostBucketsBySessionLastActivity() throws {
+        let lines = """
+            {"type":"session_meta","payload":{"model":"gpt-5"}}
+            {"type":"event_msg","timestamp":"\(iso(Date()))","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":1000,"cached_input_tokens":0,"output_tokens":0,"total_tokens":1000}}}}
+            """
+        try write(lines + "\n", to: ".codex/sessions/2026/session.jsonl")
+
+        let daily = try provider(.codex, pricing: Self.pricingTable()).dailyCosts
+        XCTAssertEqual(daily.count, 1)
+        XCTAssertEqual(daily.first?.day, Calendar.current.startOfDay(for: Date()))
+        XCTAssertEqual(daily.first?.cost ?? 0, 1000 * 1.25e-6, accuracy: 1e-12)
     }
 
     // MARK: - OpenCode

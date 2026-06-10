@@ -54,6 +54,9 @@ nonisolated struct ProviderUsage {
     var yesterdayTokens: Int64 = 0
     /// Per-model spend within this provider, highest cost first.
     var models: [ModelUsage] = []
+    /// Cost per calendar day over the recent history window, oldest first. Days with no
+    /// activity are absent — the view zero-fills when charting.
+    var dailyCosts: [DailyCost] = []
 
     static func placeholder(kind: ProviderKind, title: String) -> ProviderUsage {
         ProviderUsage(
@@ -75,6 +78,13 @@ nonisolated struct ProviderUsage {
 nonisolated struct ModelUsage: Equatable {
     let name: String
     let tokens: Int64
+    let cost: Double
+}
+
+/// Spend on a single calendar day, for the daily-history sparkline.
+nonisolated struct DailyCost: Equatable {
+    /// Start of the day in the local calendar.
+    let day: Date
     let cost: Double
 }
 
